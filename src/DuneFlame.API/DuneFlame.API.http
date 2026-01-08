@@ -1,0 +1,6 @@
+@DuneFlame.API_HostAddress = http://localhost:5098
+
+GET {{DuneFlame.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

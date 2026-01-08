@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "neRxScpFN1k=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.API\\DuneFlame.API.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Mahir\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.1\\microsoft.aspnetcore.openapi.10.0.1.nupkg.sha512",
+    "C:\\Users\\Mahir\\.nuget\\packages\\microsoft.openapi\\2.0.0\\microsoft.openapi.2.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}
