@@ -1,4 +1,4 @@
-using DuneFlame.API.Middlewares;
+﻿using DuneFlame.API.Middlewares;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -25,6 +25,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
@@ -41,6 +42,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
+app.MapHealthChecks("/health");
 app.MapControllers();
 
 app.Run();
+
+// Integration testlər üçün Program klassını əlçatan edirik
+public partial class Program { }
