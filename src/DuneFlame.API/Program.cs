@@ -3,6 +3,7 @@ using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Persistence;
+using DuneFlame.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -58,6 +59,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 var app = builder.Build();
 
