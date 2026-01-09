@@ -1,0 +1,12 @@
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\bin\Debug\net10.0\DuneFlame.Domain.deps.json
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\bin\Debug\net10.0\DuneFlame.Domain.dll
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\bin\Debug\net10.0\DuneFlame.Domain.pdb
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.AssemblyInfoInputs.cache
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.AssemblyInfo.cs
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.csproj.CoreCompileInputs.cache
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.sourcelink.json
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.dll
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\refint\DuneFlame.Domain.dll
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\DuneFlame.Domain.pdb
+C:\Users\Mahir\Saved Games\DuneFlame\src\DuneFlame.Domain\obj\Debug\net10.0\ref\DuneFlame.Domain.dll

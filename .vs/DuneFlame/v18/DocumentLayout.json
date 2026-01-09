@@ -1,12 +1,122 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{28EF34EF-EB86-4609-A73E-9C52A7350D08}|Solution Items{28EF34EF-EB86-4609-A73E-9C52A7350D08}|C:\\Users\\Mahir\\Saved Games\\DuneFlame\\docker-compose.yml||{06C066C6-04A2-4E5D-8202-439FD4234EF1}",
+      "RelativeMoniker": "D:0:0:{28EF34EF-EB86-4609-A73E-9C52A7350D08}|Solution Items{28EF34EF-EB86-4609-A73E-9C52A7350D08}|solutionrelative:docker-compose.yml||{06C066C6-04A2-4E5D-8202-439FD4234EF1}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4A3537B8-B731-4F16-ADC8-85405D8A3B4A}|src\\DuneFlame.Domain\\DuneFlame.Domain.csproj|c:\\users\\mahir\\saved games\\duneflame\\src\\duneflame.domain\\common\\baseentity.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4A3537B8-B731-4F16-ADC8-85405D8A3B4A}|src\\DuneFlame.Domain\\DuneFlame.Domain.csproj|solutionrelative:src\\duneflame.domain\\common\\baseentity.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4A3537B8-B731-4F16-ADC8-85405D8A3B4A}|src\\DuneFlame.Domain\\DuneFlame.Domain.csproj|c:\\users\\mahir\\saved games\\duneflame\\src\\duneflame.domain\\entities\\product.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4A3537B8-B731-4F16-ADC8-85405D8A3B4A}|src\\DuneFlame.Domain\\DuneFlame.Domain.csproj|solutionrelative:src\\duneflame.domain\\entities\\product.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{792D4C8F-AD4E-42BF-AB8A-D488A14FC9C7}|src\\DuneFlame.API\\DuneFlame.API.csproj|c:\\users\\mahir\\saved games\\duneflame\\src\\duneflame.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{792D4C8F-AD4E-42BF-AB8A-D488A14FC9C7}|src\\DuneFlame.API\\DuneFlame.API.csproj|solutionrelative:src\\duneflame.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{5F73F608-3088-40DA-B7C6-8EF7273E257E}|src\\DuneFlame.Infrastructure\\DuneFlame.Infrastructure.csproj|c:\\users\\mahir\\saved games\\duneflame\\src\\duneflame.infrastructure\\persistence\\appdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{5F73F608-3088-40DA-B7C6-8EF7273E257E}|src\\DuneFlame.Infrastructure\\DuneFlame.Infrastructure.csproj|solutionrelative:src\\duneflame.infrastructure\\persistence\\appdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{792D4C8F-AD4E-42BF-AB8A-D488A14FC9C7}|src\\DuneFlame.API\\DuneFlame.API.csproj|c:\\users\\mahir\\saved games\\duneflame\\src\\duneflame.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{792D4C8F-AD4E-42BF-AB8A-D488A14FC9C7}|src\\DuneFlame.API\\DuneFlame.API.csproj|solutionrelative:src\\duneflame.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
       "VerticalTabListWidth": 256,
-      "DocumentGroups": []
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "docker-compose.yml",
+              "DocumentMoniker": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\docker-compose.yml",
+              "RelativeDocumentMoniker": "docker-compose.yml",
+              "ToolTip": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\docker-compose.yml",
+              "RelativeToolTip": "docker-compose.yml",
+              "ViewState": "AgIAAAcAAAAAAAAAAAAmwB0AAAAQAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003775|",
+              "WhenOpened": "2026-01-09T04:31:26.946Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.API\\Program.cs",
+              "RelativeDocumentMoniker": "src\\DuneFlame.API\\Program.cs",
+              "ToolTip": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.API\\Program.cs",
+              "RelativeToolTip": "src\\DuneFlame.API\\Program.cs",
+              "ViewState": "AgIAABsAAAAAAAAAAAAcwCcAAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-09T04:27:27.631Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.API\\appsettings.json",
+              "RelativeDocumentMoniker": "src\\DuneFlame.API\\appsettings.json",
+              "ToolTip": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.API\\appsettings.json",
+              "RelativeToolTip": "src\\DuneFlame.API\\appsettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-01-09T04:24:30.029Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "AppDbContext.cs",
+              "DocumentMoniker": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.Infrastructure\\Persistence\\AppDbContext.cs",
+              "RelativeDocumentMoniker": "src\\DuneFlame.Infrastructure\\Persistence\\AppDbContext.cs",
+              "ToolTip": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.Infrastructure\\Persistence\\AppDbContext.cs",
+              "RelativeToolTip": "src\\DuneFlame.Infrastructure\\Persistence\\AppDbContext.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-09T04:21:46.216Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Product.cs",
+              "DocumentMoniker": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.Domain\\Entities\\Product.cs",
+              "RelativeDocumentMoniker": "src\\DuneFlame.Domain\\Entities\\Product.cs",
+              "ToolTip": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.Domain\\Entities\\Product.cs",
+              "RelativeToolTip": "src\\DuneFlame.Domain\\Entities\\Product.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-09T04:20:18.055Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "BaseEntity.cs",
+              "DocumentMoniker": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.Domain\\Common\\BaseEntity.cs",
+              "RelativeDocumentMoniker": "src\\DuneFlame.Domain\\Common\\BaseEntity.cs",
+              "ToolTip": "C:\\Users\\Mahir\\Saved Games\\DuneFlame\\src\\DuneFlame.Domain\\Common\\BaseEntity.cs",
+              "RelativeToolTip": "src\\DuneFlame.Domain\\Common\\BaseEntity.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAQAAAAyAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-09T04:19:16.138Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
     }
   ]
 }

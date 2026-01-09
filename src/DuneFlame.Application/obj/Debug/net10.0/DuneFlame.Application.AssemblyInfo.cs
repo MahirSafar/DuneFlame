@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DuneFlame.Application")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+30c5597c7153dde0eaf83e73cc950d37e893eb24")]
 [assembly: System.Reflection.AssemblyProductAttribute("DuneFlame.Application")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DuneFlame.Application")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
