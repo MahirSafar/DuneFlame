@@ -1,9 +1,11 @@
 ﻿using DuneFlame.API.Middlewares;
 using DuneFlame.Application.Interfaces;
+using DuneFlame.Application.Validators;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Persistence;
 using DuneFlame.Infrastructure.Services;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
@@ -67,7 +69,7 @@ builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Emai
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-
+builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 // 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>
 {
