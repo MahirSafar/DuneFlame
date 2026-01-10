@@ -77,9 +77,17 @@ public class AuthService(
             throw new AuthenticationException("Invalid credentials.");
 
         // Şifrə yoxlanışı
-        var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, false);
+        var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+
+        if (result.IsLockedOut)
+        {
+            throw new AuthenticationException("Account is locked due to multiple failed login attempts. Try again in 15 minutes.");
+        }
+
         if (!result.Succeeded)
+        {
             throw new AuthenticationException("Invalid credentials.");
+        }
 
         return await GenerateAuthResponseAsync(user);
     }

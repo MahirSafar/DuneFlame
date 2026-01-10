@@ -6,38 +6,69 @@ using DuneFlame.Infrastructure.Persistence;
 using DuneFlame.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// 1. Logging Setup (Serilog)
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
 
+// 2. Database Setup
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
+// 3. Identity & Security Configuration
 builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 {
-    options.Password.RequireDigit = false;
-    options.Password.RequiredLength = 6;
-    options.Password.RequireNonAlphanumeric = false;
+    // Password Complexity
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    options.Password.RequiredLength = 8;
+
+    // Account Lockout
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.AllowedForNewUsers = true;
+
+    // User Settings
     options.User.RequireUniqueEmail = true;
 })
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
-// Settings-i oxuyuruq
+// 4. Rate Limiting Service
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddFixedWindowLimiter("AuthPolicy", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 0;
+    });
+});
+
+// 5. App Settings & DI Containers
 var jwtSettings = new JwtSettings();
 builder.Configuration.Bind(JwtSettings.SectionName, jwtSettings);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
-// Servisi register edirik (Singleton ola bilər, çünki state saxlamır)
+
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
-// Authentication Setup
+builder.Services.AddScoped<IAuthService, AuthService>();
+
+// 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -60,20 +91,21 @@ builder.Services.AddAuthentication(options =>
     {
         googleOptions.ClientId = builder.Configuration["GoogleSettings:ClientId"]!;
         googleOptions.ClientSecret = builder.Configuration["GoogleSettings:ClientSecret"]!;
-        googleOptions.CallbackPath = "/signin-google"; // Google-dan geri qayıdış linki
+        googleOptions.CallbackPath = "/signin-google";
     });
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
-builder.Services.AddScoped<IAuthService, AuthService>();
 
+// === BUILD APP ===
 var app = builder.Build();
 
+// Database Seeding
 await DbInitializer.InitializeAsync(app.Services);
 
+// Middleware Pipeline
 app.UseMiddleware<GlobalExceptionMiddleware>();
-
 app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
@@ -87,14 +119,15 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Middleware Sırası (Vacib!)
-app.UseAuthentication(); // Kimlik yoxlanışı
-app.UseAuthorization();  // Səlahiyyət yoxlanışı
+// VACİB: Rate Limiter middleware-i Auth-dan əvvəl gəlməlidir
+app.UseRateLimiter();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapHealthChecks("/health");
 app.MapControllers();
 
 app.Run();
 
-// Integration testlər üçün Program klassını əlçatan edirik
 public partial class Program { }

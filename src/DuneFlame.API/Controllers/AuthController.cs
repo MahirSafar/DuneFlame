@@ -2,12 +2,14 @@
 using DuneFlame.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 
 namespace DuneFlame.API.Controllers;
 
 [Route("api/v1/auth")]
 [ApiController]
+[EnableRateLimiting("AuthPolicy")]
 public class AuthController(IAuthService authService) : ControllerBase
 {
     private readonly IAuthService _authService = authService;
