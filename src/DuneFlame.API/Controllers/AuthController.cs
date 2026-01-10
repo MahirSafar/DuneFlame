@@ -8,14 +8,9 @@ namespace DuneFlame.API.Controllers;
 
 [Route("api/v1/auth")]
 [ApiController]
-public class AuthController : ControllerBase
+public class AuthController(IAuthService authService) : ControllerBase
 {
-    private readonly IAuthService _authService;
-
-    public AuthController(IAuthService authService)
-    {
-        _authService = authService;
-    }
+    private readonly IAuthService _authService = authService;
 
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -49,5 +44,34 @@ public class AuthController : ControllerBase
 
         await _authService.LogoutAsync(userId);
         return Ok(new { message = "Logged out successfully" });
+    }
+    [HttpGet("verify-email")]
+    public async Task<IActionResult> VerifyEmail([FromQuery] string userId, [FromQuery] string token)
+    {
+        var result = await _authService.VerifyEmailAsync(userId, token);
+        if (result) return Ok("Email successfully verified!");
+        return BadRequest("Invalid verification link or token expired.");
+    }
+    [HttpGet("external-login")]
+    public IActionResult ExternalLogin(string provider = "Google")
+    {
+        var redirectUrl = Url.Action(nameof(ExternalLoginCallback));
+        var properties = _authService.ConfigureExternalLoginsAsync(provider, redirectUrl!).Result;
+        return Challenge(properties, provider);
+    }
+
+    [HttpGet("external-callback")]
+    public async Task<IActionResult> ExternalLoginCallback()
+    {
+        try
+        {
+            var response = await _authService.ExternalLoginCallbackAsync();
+            // Sonda front-end linkinə tokenlərlə yönləndirəcəyik, hələlik Ok qaytaraq
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 }

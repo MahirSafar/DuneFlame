@@ -33,16 +33,17 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 var jwtSettings = new JwtSettings();
 builder.Configuration.Bind(JwtSettings.SectionName, jwtSettings);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
-
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 // Servisi register edirik (Singleton ola bilər, çünki state saxlamır)
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
-
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 // Authentication Setup
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-}).AddJwtBearer(options =>
+})
+    .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -54,6 +55,12 @@ builder.Services.AddAuthentication(options =>
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret))
         };
+    })
+    .AddGoogle(googleOptions =>
+    {
+        googleOptions.ClientId = builder.Configuration["GoogleSettings:ClientId"]!;
+        googleOptions.ClientSecret = builder.Configuration["GoogleSettings:ClientSecret"]!;
+        googleOptions.CallbackPath = "/signin-google"; // Google-dan geri qayıdış linki
     });
 
 builder.Services.AddControllers();

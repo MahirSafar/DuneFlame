@@ -1,10 +1,13 @@
-﻿using System.Security.Authentication;
-using DuneFlame.Application.DTOs.Auth;
+﻿using DuneFlame.Application.DTOs.Auth;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Security.Authentication;
+using System.Security.Claims;
 
 namespace DuneFlame.Infrastructure.Services;
 
@@ -12,11 +15,15 @@ public class AuthService(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     IJwtTokenGenerator jwtTokenGenerator,
+    IEmailService emailService,
+    ILogger<AuthService> logger,
     AppDbContext context) : IAuthService
 {
     private readonly UserManager<ApplicationUser> _userManager = userManager;
     private readonly SignInManager<ApplicationUser> _signInManager = signInManager;
     private readonly IJwtTokenGenerator _jwtTokenGenerator = jwtTokenGenerator;
+    private readonly IEmailService _emailService = emailService;
+    private readonly ILogger _logger = logger;
     private readonly AppDbContext _context = context;
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
@@ -33,7 +40,7 @@ public class AuthService(
             UserName = request.Email,
             FirstName = request.FirstName,
             LastName = request.LastName,
-            EmailConfirmed = true // Sadəlik üçün birbaşa təsdiq edirik
+            EmailConfirmed = false 
         };
 
         var result = await _userManager.CreateAsync(user, request.Password);
@@ -46,8 +53,21 @@ public class AuthService(
         // 3. Rol təyini (Default: Customer)
         await _userManager.AddToRoleAsync(user, "Customer");
 
+        try
+        {
+            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            await _emailService.SendVerificationEmailAsync(user.Email!, user.Id.ToString(), token);
+        }
+        catch (Exception ex)
+        {
+            // Mail göndərilə bilməsə belə logla, amma istifadəçini qeydiyyatdan keçmiş say.
+            // Və ya istəyirsənsə xəta at, amma bu zaman user-i bazadan silməli olacaqsan.
+            _logger.LogError(ex, "Registration email could not be sent to {Email}", user.Email);
+        }
+
         // 4. Avtomatik Login (Token qaytarırıq)
         return await GenerateAuthResponseAsync(user);
+
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
@@ -119,5 +139,58 @@ public class AuthService(
             refreshToken.Token,
             roles.ToList()
         );
+    }
+    public async Task<bool> VerifyEmailAsync(string userId, string token)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return false;
+
+        // Identity avtomatik olaraq DB-dəki tokeni yoxlayır
+        var result = await _userManager.ConfirmEmailAsync(user, token);
+        return result.Succeeded;
+    }
+    public async Task<AuthenticationProperties> ConfigureExternalLoginsAsync(string provider, string redirectUrl)
+    {
+        // Google login pəncərəsini açmaq üçün parametrlər
+        return _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
+    }
+
+    public async Task<AuthResponse> ExternalLoginCallbackAsync()
+    {
+        // Google-dan gələn məlumatı oxu
+        var info = await _signInManager.GetExternalLoginInfoAsync();
+        if (info == null) throw new Exception("Error loading external login information.");
+
+        // Bu Google hesabı ilə əvvəl giriş edilibmi?
+        var result = await _signInManager.ExternalLoginSignInAsync(info.LoginProvider, info.ProviderKey, isPersistent: false);
+
+        if (result.Succeeded)
+        {
+            var user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
+            return await GenerateAuthResponseAsync(user!);
+        }
+
+        // Əgər istifadəçi yoxdursa, yeni yaradılır (Auto-create)
+        var email = info.Principal.FindFirstValue(ClaimTypes.Email);
+        var userByEmail = await _userManager.FindByEmailAsync(email!);
+
+        if (userByEmail == null)
+        {
+            userByEmail = new ApplicationUser
+            {
+                UserName = email,
+                Email = email,
+                FirstName = info.Principal.FindFirstValue(ClaimTypes.GivenName) ?? "Google",
+                LastName = info.Principal.FindFirstValue(ClaimTypes.Surname) ?? "User",
+                EmailConfirmed = true // Google artıq təsdiqləyib
+            };
+            await _userManager.CreateAsync(userByEmail);
+            await _userManager.AddToRoleAsync(userByEmail, "Customer");
+        }
+
+        // Google məlumatını bizim User-ə bağla (ExternalLogins cədvəlinə yazılır)
+        await _userManager.AddLoginAsync(userByEmail, info);
+
+        return await GenerateAuthResponseAsync(userByEmail);
     }
 }
