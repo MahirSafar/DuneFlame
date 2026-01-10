@@ -52,5 +52,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // UserProfile 1-to-1 Relationship
+        modelBuilder.Entity<UserProfile>(entity =>
+        {
+            entity.HasOne(p => p.User)
+                .WithOne() // ApplicationUser tərəfində naviqasiya property-si mütləq deyil
+                .HasForeignKey<UserProfile>(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Newsletter Unique Email
+        modelBuilder.Entity<NewsletterSubscription>()
+            .HasIndex(n => n.Email)
+            .IsUnique();
     }
 }
