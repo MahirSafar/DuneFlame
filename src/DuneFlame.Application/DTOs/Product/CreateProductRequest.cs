@@ -6,6 +6,7 @@ public record CreateProductRequest(
     string Name,
     string Description,
     decimal Price,
+    decimal? OldPrice,
     int StockQuantity,
     Guid CategoryId,
     List<IFormFile>? Images // Şəkillər buradan gəlir

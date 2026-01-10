@@ -25,6 +25,22 @@ builder.Host.UseSerilog((context, configuration) =>
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
+// 2.1 Distributed Caching (Redis or In-Memory)
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    var redisConnection = builder.Configuration.GetConnectionString("Redis");
+    if (!string.IsNullOrEmpty(redisConnection))
+    {
+        options.Configuration = redisConnection;
+    }
+});
+
+// Fallback to in-memory cache if Redis is not configured
+if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("Redis")))
+{
+    builder.Services.AddDistributedMemoryCache();
+}
+
 // 3. Identity & Security Configuration
 builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 {
@@ -73,6 +89,8 @@ builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<INewsletterService, NewsletterService>();
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddScoped<IFileService, LocalFileService>();
+builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 // 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>
