@@ -31,4 +31,28 @@ public class SmtpEmailService(IOptions<EmailSettings> settings) : IEmailService
 
         await client.SendMailAsync(message);
     }
+
+    public async Task SendPasswordResetEmailAsync(string to, string userId, string token)
+    {
+        var resetLink = $"https://localhost:3000/reset-password?userId={userId}&token={WebUtility.UrlEncode(token)}";
+
+        var message = new MailMessage(_settings.FromEmail, to)
+        {
+            Subject = "Dune & Flame - Password Reset",
+            Body = $@"<h3>Password Reset Request</h3>
+                     <p>Click the link below to reset your password:</p>
+                     <a href='{resetLink}'>Reset My Password</a>
+                     <p>This link will expire in 24 hours.</p>
+                     <p>If you did not request a password reset, please ignore this email.</p>",
+            IsBodyHtml = true
+        };
+
+        using var client = new SmtpClient(_settings.Host, _settings.Port)
+        {
+            Credentials = new NetworkCredential(_settings.Username, _settings.Password),
+            EnableSsl = true
+        };
+
+        await client.SendMailAsync(message);
+    }
 }

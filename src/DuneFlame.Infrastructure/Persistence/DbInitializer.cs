@@ -18,7 +18,15 @@ public static class DbInitializer
 
         try
         {
-            await context.Database.MigrateAsync();
+            // Provider adını yoxlayırıq 
+            if (context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+            {
+                await context.Database.EnsureCreatedAsync();
+            }
+            else
+            {
+                await context.Database.MigrateAsync();
+            }
 
             // 1. Rolları yarat (Admin və Customer)
             string[] roles = { "Admin", "Customer" };

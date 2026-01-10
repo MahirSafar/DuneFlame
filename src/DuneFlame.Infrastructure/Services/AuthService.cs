@@ -196,9 +196,70 @@ public class AuthService(
             await _userManager.AddToRoleAsync(userByEmail, "Customer");
         }
 
-        // Google məlumatını bizim User-ə bağla (ExternalLogins cədvəlinə yazılır)
-        await _userManager.AddLoginAsync(userByEmail, info);
+                // Google məlumatını bizim User-ə bağla (ExternalLogins cədvəlinə yazılır)
+                await _userManager.AddLoginAsync(userByEmail, info);
 
-        return await GenerateAuthResponseAsync(userByEmail);
-    }
-}
+                return await GenerateAuthResponseAsync(userByEmail);
+            }
+
+            public async Task<bool> ForgotPasswordAsync(string email)
+            {
+                var user = await _userManager.FindByEmailAsync(email);
+                if (user == null)
+                    return false; // Don't reveal if email exists for security
+
+                // Generate reset token using Identity
+                var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+
+                // Store token in database for tracking
+                var resetToken = new PasswordResetToken
+                {
+                    UserId = user.Id,
+                    Token = token,
+                    ExpiresAt = DateTime.UtcNow.AddHours(24)
+                };
+
+                await _context.PasswordResetTokens.AddAsync(resetToken);
+                await _context.SaveChangesAsync();
+
+                try
+                {
+                    await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id.ToString(), token);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Password reset email could not be sent to {Email}", user.Email);
+                    return false;
+                }
+            }
+
+            public async Task<bool> ResetPasswordAsync(string email, string token, string newPassword)
+            {
+                var user = await _userManager.FindByEmailAsync(email);
+                if (user == null)
+                    throw new AuthenticationException("User not found.");
+
+                // Validate reset token exists and is not expired/used
+                var resetToken = await _context.PasswordResetTokens
+                    .FirstOrDefaultAsync(rt => rt.UserId == user.Id && rt.Token == token);
+
+                if (resetToken == null || resetToken.IsExpired || resetToken.IsUsed)
+                    throw new AuthenticationException("Invalid or expired password reset token.");
+
+                // Reset password
+                var result = await _userManager.ResetPasswordAsync(user, token, newPassword);
+                if (!result.Succeeded)
+                {
+                    var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                    throw new AuthenticationException($"Password reset failed: {errors}");
+                }
+
+                // Mark token as used
+                resetToken.UsedAt = DateTime.UtcNow;
+                _context.PasswordResetTokens.Update(resetToken);
+                await _context.SaveChangesAsync();
+
+                return true;
+            }
+        }

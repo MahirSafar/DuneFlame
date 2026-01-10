@@ -62,18 +62,43 @@ public class AuthController(IAuthService authService) : ControllerBase
         return Challenge(properties, provider);
     }
 
-    [HttpGet("external-callback")]
-    public async Task<IActionResult> ExternalLoginCallback()
-    {
-        try
+        [HttpGet("external-callback")]
+        public async Task<IActionResult> ExternalLoginCallback()
         {
-            var response = await _authService.ExternalLoginCallbackAsync();
-            // Sonda front-end linkinə tokenlərlə yönləndirəcəyik, hələlik Ok qaytaraq
-            return Ok(response);
+            try
+            {
+                var response = await _authService.ExternalLoginCallbackAsync();
+                // Sonda front-end linkinə tokenlərlə yönləndirəcəyik, hələlik Ok qaytaraq
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
-        catch (Exception ex)
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
-            return BadRequest(ex.Message);
+            var result = await _authService.ForgotPasswordAsync(request.Email);
+            // Always return success for security (don't reveal if email exists)
+            return Ok(new { message = "If an account with that email exists, a password reset link has been sent." });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+        {
+            if (request.NewPassword != request.ConfirmPassword)
+                return BadRequest("Passwords do not match.");
+
+            try
+            {
+                await _authService.ResetPasswordAsync(request.Email, request.Token, request.NewPassword);
+                return Ok(new { message = "Password has been successfully reset. Please log in with your new password." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
     }
-}
