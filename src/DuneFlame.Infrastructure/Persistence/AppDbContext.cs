@@ -7,7 +7,6 @@ namespace DuneFlame.Infrastructure.Persistence;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
 {
-    public DbSet<Product> Products { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<ExternalLogin> ExternalLogins { get; set; }
@@ -15,6 +14,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<UserProfile> UserProfiles { get; set; }
     public DbSet<NewsletterSubscription> NewsletterSubscriptions { get; set; }
     public DbSet<ContactMessage> ContactMessages { get; set; }
+    public DbSet<Product> Products { get; set; } 
+    public DbSet<Category> Categories { get; set; } 
+    public DbSet<ProductImage> ProductImages { get; set; }
+    public DbSet<Slider> Sliders { get; set; }
+    public DbSet<AboutSection> AboutSections { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,5 +73,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<NewsletterSubscription>()
             .HasIndex(n => n.Email)
             .IsUnique();
+
+        modelBuilder.Entity<Product>()
+        .HasOne(p => p.Category)
+        .WithMany(c => c.Products)
+        .HasForeignKey(p => p.CategoryId)
+        .OnDelete(DeleteBehavior.Restrict); // Kateqoriya silinərsə məhsulları silmə (xəta ver)
+
+        // Product - Images Relationship
+        modelBuilder.Entity<ProductImage>()
+            .HasOne(i => i.Product)
+            .WithMany(p => p.Images)
+            .HasForeignKey(i => i.ProductId)
+            .OnDelete(DeleteBehavior.Cascade); // Məhsul silinərsə şəkillərini də sil
+
+        // Precision for Price (PostgreSQL üçün vacibdir)
+        modelBuilder.Entity<Product>()
+            .Property(p => p.Price)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Product>()
+            .Property(p => p.OldPrice)
+            .HasPrecision(18, 2);
     }
 }
