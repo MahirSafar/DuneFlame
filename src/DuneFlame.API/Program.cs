@@ -72,6 +72,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<INewsletterService, NewsletterService>();
 builder.Services.AddScoped<IContactService, ContactService>();
+builder.Services.AddScoped<IFileService, LocalFileService>();
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 // 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>
@@ -124,6 +125,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseStaticFiles();
 // VACİB: Rate Limiter middleware-i Auth-dan əvvəl gəlməlidir
 app.UseRateLimiter();
 
