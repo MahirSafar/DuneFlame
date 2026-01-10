@@ -69,6 +69,9 @@ builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Emai
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserProfileService, UserProfileService>();
+builder.Services.AddScoped<INewsletterService, NewsletterService>();
+builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 // 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>

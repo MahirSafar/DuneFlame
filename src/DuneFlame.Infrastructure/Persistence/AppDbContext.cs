@@ -12,6 +12,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<ExternalLogin> ExternalLogins { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+    public DbSet<UserProfile> UserProfiles { get; set; }
+    public DbSet<NewsletterSubscription> NewsletterSubscriptions { get; set; }
+    public DbSet<ContactMessage> ContactMessages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

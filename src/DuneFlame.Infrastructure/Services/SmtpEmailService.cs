@@ -1,7 +1,8 @@
-﻿using System.Net;
-using System.Net.Mail;
-using DuneFlame.Application.Interfaces;
+﻿using DuneFlame.Application.Interfaces;
+using DuneFlame.Domain.Entities;
 using Microsoft.Extensions.Options;
+using System.Net;
+using System.Net.Mail;
 
 namespace DuneFlame.Infrastructure.Services;
 
@@ -44,6 +45,39 @@ public class SmtpEmailService(IOptions<EmailSettings> settings) : IEmailService
                      <a href='{resetLink}'>Reset My Password</a>
                      <p>This link will expire in 24 hours.</p>
                      <p>If you did not request a password reset, please ignore this email.</p>",
+            IsBodyHtml = true
+        };
+
+        using var client = new SmtpClient(_settings.Host, _settings.Port)
+        {
+            Credentials = new NetworkCredential(_settings.Username, _settings.Password),
+            EnableSsl = true
+        };
+
+        await client.SendMailAsync(message);
+    }
+    public async Task SendNewsletterVerificationAsync(string to, string token)
+    {
+        // Real link: https://duneflame.com/newsletter/verify?token=...
+        var link = $"https://localhost:7190/api/v1/newsletter/verify?token={token}";
+        await SendEmailAsync(to, "Confirm Subscription",
+            $"Click here to verify: <a href='{link}'>Confirm</a>");
+    }
+
+    public async Task SendAdminContactAlertAsync(ContactMessage message)
+    {
+        var body = $"New Message from {message.Name} ({message.Email}):<br/>Subject: {message.Subject}<br/>Message: {message.Message}";
+        // Admin emailini appsettings-dən oxuya bilərsən və ya settings.FromEmail istifadə et
+        await SendEmailAsync(_settings.FromEmail, "New Contact Message", body);
+    }
+
+    // Helper metod (kod təkrarı olmasın deyə)
+    private async Task SendEmailAsync(string to, string subject, string body)
+    {
+        var message = new MailMessage(_settings.FromEmail, to)
+        {
+            Subject = subject,
+            Body = body,
             IsBodyHtml = true
         };
 
