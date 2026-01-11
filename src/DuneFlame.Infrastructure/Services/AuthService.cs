@@ -26,21 +26,19 @@ public class AuthService(
     private readonly ILogger _logger = logger;
     private readonly AppDbContext _context = context;
 
-    public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
+    public async Task<bool> RegisterAsync(RegisterRequest request)
     {
-        // 1. Email yoxlanışı
         var existingUser = await _userManager.FindByEmailAsync(request.Email);
         if (existingUser != null)
             throw new Exception("User with this email already exists.");
 
-        // 2. İstifadəçi yaradılması
         var user = new ApplicationUser
         {
             Email = request.Email,
             UserName = request.Email,
             FirstName = request.FirstName,
             LastName = request.LastName,
-            EmailConfirmed = false 
+            EmailConfirmed = false
         };
 
         var result = await _userManager.CreateAsync(user, request.Password);
@@ -50,33 +48,24 @@ public class AuthService(
             throw new Exception($"Registration failed: {errors}");
         }
 
-        // 3. Rol təyini (Default: Customer)
         await _userManager.AddToRoleAsync(user, "Customer");
 
-        try
-        {
-            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-            await _emailService.SendVerificationEmailAsync(user.Email!, user.Id.ToString(), token);
-        }
-        catch (Exception ex)
-        {
-            // Mail göndərilə bilməsə belə logla, amma istifadəçini qeydiyyatdan keçmiş say.
-            // Və ya istəyirsənsə xəta at, amma bu zaman user-i bazadan silməli olacaqsan.
-            _logger.LogError(ex, "Registration email could not be sent to {Email}", user.Email);
-        }
+        var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+        await _emailService.SendVerificationEmailAsync(user.Email!, user.Id.ToString(), token);
 
-        // 4. Avtomatik Login (Token qaytarırıq)
-        return await GenerateAuthResponseAsync(user);
-
+        return true; // Artıq GenerateAuthResponseAsync çağırmırıq
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var user = await _userManager.FindByEmailAsync(request.Email);
-        if (user == null)
-            throw new AuthenticationException("Invalid credentials.");
+        var user = await _userManager.FindByEmailAsync(request.Email) ?? throw new AuthenticationException("Invalid credentials.");
 
-        // Şifrə yoxlanışı
+        // ƏLAVƏ: Email təsdiqlənibmi?
+        if (!user.EmailConfirmed)
+        {
+            throw new AuthenticationException("Please confirm your email before logging in.");
+        }
+
         var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
 
         if (result.IsLockedOut)

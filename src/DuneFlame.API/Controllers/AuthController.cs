@@ -51,8 +51,19 @@ public class AuthController(IAuthService authService) : ControllerBase
     public async Task<IActionResult> VerifyEmail([FromQuery] string userId, [FromQuery] string token)
     {
         var result = await _authService.VerifyEmailAsync(userId, token);
-        if (result) return Ok("Email successfully verified!");
-        return BadRequest("Invalid verification link or token expired.");
+
+        // Frontend URL-ni hardcode yazmaq əvəzinə appsettings.json-dan oxumaq daha yaxşıdır
+        // Hələlik birbaşa yazıram:
+        string frontendLoginUrl = "http://localhost:3000/auth/login";
+
+        if (result)
+        {
+            // Uğurlu olduqda login səhifəsinə parametr göndərərək yönləndir
+            return Redirect($"{frontendLoginUrl}?verified=true");
+        }
+
+        // Xəta olduqda xəta parametri ilə yönləndir
+        return Redirect($"{frontendLoginUrl}?verified=false&error=invalid_token");
     }
     [HttpGet("external-login")]
     public IActionResult ExternalLogin(string provider = "Google")
@@ -65,17 +76,12 @@ public class AuthController(IAuthService authService) : ControllerBase
         [HttpGet("external-callback")]
         public async Task<IActionResult> ExternalLoginCallback()
         {
-            try
-            {
-                var response = await _authService.ExternalLoginCallbackAsync();
-                // Sonda front-end linkinə tokenlərlə yönləndirəcəyik, hələlik Ok qaytaraq
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(ex.Message);
-            }
-        }
+        var response = await _authService.ExternalLoginCallbackAsync();
+
+        // Tokenləri URL vasitəsilə Next.js-ə ötürürük (və ya cookie ilə)
+        var redirectUrl = $"http://localhost:3000/auth/callback?token={response.AccessToken}&refreshToken={response.RefreshToken}";
+        return Redirect(redirectUrl);
+    }
 
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)

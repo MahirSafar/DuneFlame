@@ -27,4 +27,8 @@
     <ProjectReference Include="..\DuneFlame.Infrastructure\DuneFlame.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="wwwroot\uploads\" />
+  </ItemGroup>
+
 </Project>
