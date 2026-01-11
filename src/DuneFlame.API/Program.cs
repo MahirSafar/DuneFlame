@@ -7,12 +7,16 @@ using DuneFlame.Infrastructure.Persistence;
 using DuneFlame.Infrastructure.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,9 +29,12 @@ builder.Host.UseSerilog((context, configuration) =>
 builder.Services.AddScoped<SlowQueryInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, opt) =>
 {
-    var slowQueryInterceptor = serviceProvider.GetRequiredService<SlowQueryInterceptor>();
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"))
-       .AddInterceptors(slowQueryInterceptor);
+    var slowQueryInterceptor = serviceProvider.GetService<SlowQueryInterceptor>();
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
+    if (slowQueryInterceptor != null)
+    {
+        opt.AddInterceptors(slowQueryInterceptor);
+    }
 });
 
 // 2.1 Distributed Caching (Redis or In-Memory)
@@ -158,13 +165,45 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks();
+
+// 7. API Versioning Configuration
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new Microsoft.AspNetCore.Mvc.ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = new UrlSegmentApiVersionReader();
+});
+
+// 8. Health Checks Configuration
+var healthChecksBuilder = builder.Services.AddHealthChecks();
+
+var connectionString = builder.Configuration.GetConnectionString("Postgres");
+if (!string.IsNullOrEmpty(connectionString))
+{
+    healthChecksBuilder.AddNpgSql(
+        connectionString,
+        name: "dune_flame_db",
+        failureStatus: HealthStatus.Degraded);
+}
+
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrEmpty(redisConnection))
+{
+    healthChecksBuilder.AddRedis(
+        redisConnection,
+        name: "dune_flame_redis",
+        failureStatus: HealthStatus.Degraded);
+}
 
 // === BUILD APP ===
 var app = builder.Build();
 
-// Database Seeding
-await DbInitializer.InitializeAsync(app.Services);
+// Database Seeding (skip in Testing environment)
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    await DbInitializer.InitializeAsync(app.Services);
+}
 
 // Middleware Pipeline
 app.UseMiddleware<GlobalExceptionMiddleware>();
@@ -183,12 +222,44 @@ app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 // VACİB: Rate Limiter middleware-i Auth-dan əvvəl gəlməlidir
-app.UseRateLimiter();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseRateLimiter();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+// Configure health checks endpoint with detailed JSON response
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResultStatusCodes =
+    {
+        [HealthStatus.Healthy] = StatusCodes.Status200OK,
+        [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        [HealthStatus.Unhealthy] = StatusCodes.Status200OK
+    },
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+
+        var response = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(entry => new
+            {
+                name = entry.Key,
+                status = entry.Value.Status.ToString(),
+                description = entry.Value.Description,
+                duration = entry.Value.Duration.TotalMilliseconds,
+                exception = entry.Value.Exception?.Message
+            })
+        };
+
+        await context.Response.WriteAsJsonAsync(response);
+    }
+});
+
 app.MapControllers();
 
 app.Run();

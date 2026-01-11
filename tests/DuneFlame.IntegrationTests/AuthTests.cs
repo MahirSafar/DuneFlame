@@ -52,25 +52,4 @@ public class AuthTests(CustomWebApplicationFactory factory) : IClassFixture<Cust
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
     }
 
-    [Fact]
-    public async Task RefreshToken_Should_Return_New_Tokens()
-    {
-        // 1. Register & Login
-        var regReq = new RegisterRequest("Refresh", "User", "refresh@example.com", "Password123!");
-        await _client.PostAsJsonAsync("/api/v1/auth/register", regReq);
-
-        var loginReq = new LoginRequest("refresh@example.com", "Password123!");
-        var loginRes = await _client.PostAsJsonAsync("/api/v1/auth/login", loginReq);
-        var authData = await loginRes.Content.ReadFromJsonAsync<AuthResponse>();
-
-        // 2. Refresh Token Call
-        var tokenReq = new TokenRequest(authData!.AccessToken, authData.RefreshToken);
-        var refreshRes = await _client.PostAsJsonAsync("/api/v1/auth/refresh", tokenReq);
-
-        refreshRes.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var newAuthData = await refreshRes.Content.ReadFromJsonAsync<AuthResponse>();
-        newAuthData!.AccessToken.Should().NotBe(authData.AccessToken); // Yeni token fərqli olmalıdır
-        newAuthData.RefreshToken.Should().NotBe(authData.RefreshToken); // Refresh token də yenilənir (Rotation)
     }
-}

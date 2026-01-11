@@ -105,9 +105,16 @@ public class AuthService(
 
         // 2. Refresh token bazada varmı və aktivdirmi?
         var storedRefreshToken = await _context.RefreshTokens
+            .Include(x => x.User)
             .FirstOrDefaultAsync(x => x.Token == request.RefreshToken && x.UserId == user.Id);
 
-        if (storedRefreshToken == null || !storedRefreshToken.IsActive)
+        if (storedRefreshToken == null)
+            throw new AuthenticationException("Refresh token not found.");
+
+        if (storedRefreshToken.User == null)
+            throw new AuthenticationException("Invalid refresh token state.");
+
+        if (!storedRefreshToken.IsActive)
             throw new AuthenticationException("Invalid or expired refresh token.");
 
         // 3. Köhnə tokeni ləğv et (Revoke)
