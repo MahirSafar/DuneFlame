@@ -19,6 +19,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ProductImage> ProductImages { get; set; }
     public DbSet<Slider> Sliders { get; set; }
     public DbSet<AboutSection> AboutSections { get; set; }
+    public DbSet<Cart> Carts { get; set; }
+    public DbSet<CartItem> CartItems { get; set; }
+    public DbSet<Order> Orders { get; set; }
+    public DbSet<OrderItem> OrderItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,6 +98,56 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         modelBuilder.Entity<Product>()
             .Property(p => p.OldPrice)
+            .HasPrecision(18, 2);
+
+        // Cart - User Relationship (1-to-Many)
+        modelBuilder.Entity<Cart>()
+            .HasOne(c => c.ApplicationUser)
+            .WithMany(u => u.Carts)
+            .HasForeignKey(c => c.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // CartItem - Cart Relationship (1-to-Many)
+        modelBuilder.Entity<CartItem>()
+            .HasOne(ci => ci.Cart)
+            .WithMany(c => c.Items)
+            .HasForeignKey(ci => ci.CartId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // CartItem - Product Relationship (1-to-Many)
+        modelBuilder.Entity<CartItem>()
+            .HasOne(ci => ci.Product)
+            .WithMany()
+            .HasForeignKey(ci => ci.ProductId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // CartItem Quantity Constraint
+        modelBuilder.Entity<CartItem>()
+            .Property(ci => ci.Quantity)
+            .HasDefaultValue(1);
+
+        // Order - User Relationship (1-to-Many)
+        modelBuilder.Entity<Order>()
+            .HasOne(o => o.ApplicationUser)
+            .WithMany(u => u.Orders)
+            .HasForeignKey(o => o.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Order - TotalAmount Precision
+        modelBuilder.Entity<Order>()
+            .Property(o => o.TotalAmount)
+            .HasPrecision(18, 2);
+
+        // OrderItem - Order Relationship (1-to-Many)
+        modelBuilder.Entity<OrderItem>()
+            .HasOne(oi => oi.Order)
+            .WithMany(o => o.Items)
+            .HasForeignKey(oi => oi.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // OrderItem - UnitPrice Precision
+        modelBuilder.Entity<OrderItem>()
+            .Property(oi => oi.UnitPrice)
             .HasPrecision(18, 2);
     }
 }
