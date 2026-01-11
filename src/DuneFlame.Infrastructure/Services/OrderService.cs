@@ -7,9 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DuneFlame.Infrastructure.Services;
 
-public class OrderService(AppDbContext context) : IOrderService
+public class OrderService(AppDbContext context, IRewardService rewardService) : IOrderService
 {
     private readonly AppDbContext _context = context;
+    private readonly IRewardService _rewardService = rewardService;
 
     public async Task<OrderDto> CreateOrderAsync(Guid userId, CreateOrderRequest request)
     {
@@ -32,7 +33,9 @@ public class OrderService(AppDbContext context) : IOrderService
                 UserId = userId,
                 ShippingAddress = request.ShippingAddress,
                 Status = OrderStatus.Pending,
-                TotalAmount = 0
+                TotalAmount = 0,
+                PointsRedeemed = 0,
+                PointsEarned = 0
             };
 
             decimal totalAmount = 0;
@@ -71,12 +74,37 @@ public class OrderService(AppDbContext context) : IOrderService
             }
 
             order.TotalAmount = totalAmount;
+
+            // Handle reward points redemption
+            if (request.UsePoints)
+            {
+                var wallet = await _context.RewardWallets
+                    .FirstOrDefaultAsync(w => w.UserId == userId);
+
+                if (wallet != null && wallet.Balance > 0)
+                {
+                    // Calculate discount (min of balance or order total)
+                    var discount = Math.Min(wallet.Balance, order.TotalAmount);
+                    order.PointsRedeemed = discount;
+                    order.TotalAmount -= discount;
+
+                    // Redeem points
+                    await _rewardService.RedeemPointsAsync(userId, discount, order.Id);
+                }
+            }
+
             _context.Orders.Add(order);
 
             // Clear cart
             cart.Items.Clear();
 
             await _context.SaveChangesAsync();
+
+            // Calculate and earn cashback points (after order is created)
+            var cashback = RewardService.CalculateCashback(order.TotalAmount);
+            order.PointsEarned = cashback;
+            await _rewardService.EarnPointsAsync(userId, order.Id, cashback);
+
             await transaction.CommitAsync();
 
             return MapToOrderDto(order);

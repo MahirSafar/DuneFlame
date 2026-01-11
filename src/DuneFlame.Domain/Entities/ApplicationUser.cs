@@ -12,4 +12,5 @@ public class ApplicationUser : IdentityUser<Guid>
     public ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = [];
     public ICollection<Cart> Carts { get; set; } = [];
     public ICollection<Order> Orders { get; set; } = [];
+    public RewardWallet? RewardWallet { get; set; }
 }

@@ -23,6 +23,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<CartItem> CartItems { get; set; }
     public DbSet<Order> Orders { get; set; }
     public DbSet<OrderItem> OrderItems { get; set; }
+    public DbSet<RewardWallet> RewardWallets { get; set; }
+    public DbSet<RewardTransaction> RewardTransactions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -145,9 +147,42 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(oi => oi.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // OrderItem - UnitPrice Precision
-        modelBuilder.Entity<OrderItem>()
-            .Property(oi => oi.UnitPrice)
-            .HasPrecision(18, 2);
-    }
-}
+                // OrderItem - UnitPrice Precision
+                modelBuilder.Entity<OrderItem>()
+                    .Property(oi => oi.UnitPrice)
+                    .HasPrecision(18, 2);
+
+                // RewardWallet - User Relationship (1-to-1)
+                modelBuilder.Entity<RewardWallet>()
+                    .HasOne(w => w.ApplicationUser)
+                    .WithOne(u => u.RewardWallet)
+                    .HasForeignKey<RewardWallet>(w => w.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // RewardWallet Balance Precision
+                modelBuilder.Entity<RewardWallet>()
+                    .Property(w => w.Balance)
+                    .HasPrecision(18, 2);
+
+                // RewardTransaction - Wallet Relationship (1-to-Many)
+                modelBuilder.Entity<RewardTransaction>()
+                    .HasOne(rt => rt.RewardWallet)
+                    .WithMany(w => w.Transactions)
+                    .HasForeignKey(rt => rt.WalletId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // RewardTransaction Amount Precision
+                modelBuilder.Entity<RewardTransaction>()
+                    .Property(rt => rt.Amount)
+                    .HasPrecision(18, 2);
+
+                // Order Points Precision
+                modelBuilder.Entity<Order>()
+                    .Property(o => o.PointsRedeemed)
+                    .HasPrecision(18, 2);
+
+                modelBuilder.Entity<Order>()
+                    .Property(o => o.PointsEarned)
+                    .HasPrecision(18, 2);
+            }
+        }

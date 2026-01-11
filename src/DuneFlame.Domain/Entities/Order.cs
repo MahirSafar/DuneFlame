@@ -10,5 +10,7 @@ public class Order : BaseEntity
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public decimal TotalAmount { get; set; }
     public string ShippingAddress { get; set; } = string.Empty;
+    public decimal PointsRedeemed { get; set; } = 0;
+    public decimal PointsEarned { get; set; } = 0;
     public ICollection<OrderItem> Items { get; set; } = [];
 }
