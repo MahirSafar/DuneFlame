@@ -14,8 +14,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<UserProfile> UserProfiles { get; set; }
     public DbSet<NewsletterSubscription> NewsletterSubscriptions { get; set; }
     public DbSet<ContactMessage> ContactMessages { get; set; }
-    public DbSet<Product> Products { get; set; } 
-    public DbSet<Category> Categories { get; set; } 
+    public DbSet<Product> Products { get; set; }
+    public DbSet<Category> Categories { get; set; }
     public DbSet<ProductImage> ProductImages { get; set; }
     public DbSet<Slider> Sliders { get; set; }
     public DbSet<AboutSection> AboutSections { get; set; }
@@ -148,54 +148,54 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(oi => oi.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
 
-                // OrderItem - UnitPrice Precision
-                modelBuilder.Entity<OrderItem>()
-                    .Property(oi => oi.UnitPrice)
-                    .HasPrecision(18, 2);
+        // OrderItem - UnitPrice Precision
+        modelBuilder.Entity<OrderItem>()
+            .Property(oi => oi.UnitPrice)
+            .HasPrecision(18, 2);
 
-                // RewardWallet - User Relationship (1-to-1)
-                modelBuilder.Entity<RewardWallet>()
-                    .HasOne(w => w.ApplicationUser)
-                    .WithOne(u => u.RewardWallet)
-                    .HasForeignKey<RewardWallet>(w => w.UserId)
-                    .OnDelete(DeleteBehavior.Cascade);
+        // RewardWallet - User Relationship (1-to-1)
+        modelBuilder.Entity<RewardWallet>()
+            .HasOne(w => w.ApplicationUser)
+            .WithOne(u => u.RewardWallet)
+            .HasForeignKey<RewardWallet>(w => w.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-                // RewardWallet Balance Precision
-                modelBuilder.Entity<RewardWallet>()
-                    .Property(w => w.Balance)
-                    .HasPrecision(18, 2);
+        // RewardWallet Balance Precision
+        modelBuilder.Entity<RewardWallet>()
+            .Property(w => w.Balance)
+            .HasPrecision(18, 2);
 
-                // RewardTransaction - Wallet Relationship (1-to-Many)
-                modelBuilder.Entity<RewardTransaction>()
-                    .HasOne(rt => rt.RewardWallet)
-                    .WithMany(w => w.Transactions)
-                    .HasForeignKey(rt => rt.WalletId)
-                    .OnDelete(DeleteBehavior.Cascade);
+        // RewardTransaction - Wallet Relationship (1-to-Many)
+        modelBuilder.Entity<RewardTransaction>()
+            .HasOne(rt => rt.RewardWallet)
+            .WithMany(w => w.Transactions)
+            .HasForeignKey(rt => rt.WalletId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-                // RewardTransaction Amount Precision
-                modelBuilder.Entity<RewardTransaction>()
-                    .Property(rt => rt.Amount)
-                    .HasPrecision(18, 2);
+        // RewardTransaction Amount Precision
+        modelBuilder.Entity<RewardTransaction>()
+            .Property(rt => rt.Amount)
+            .HasPrecision(18, 2);
 
-                // Order Points Precision
-                modelBuilder.Entity<Order>()
-                    .Property(o => o.PointsRedeemed)
-                    .HasPrecision(18, 2);
+        // Order Points Precision
+        modelBuilder.Entity<Order>()
+            .Property(o => o.PointsRedeemed)
+            .HasPrecision(18, 2);
 
-                modelBuilder.Entity<Order>()
-                    .Property(o => o.PointsEarned)
-                    .HasPrecision(18, 2);
+        modelBuilder.Entity<Order>()
+            .Property(o => o.PointsEarned)
+            .HasPrecision(18, 2);
 
-                // PaymentTransaction - Order Relationship (1-to-Many)
-                modelBuilder.Entity<PaymentTransaction>()
-                    .HasOne(pt => pt.Order)
-                    .WithMany(o => o.PaymentTransactions)
-                    .HasForeignKey(pt => pt.OrderId)
-                    .OnDelete(DeleteBehavior.Cascade);
+        // PaymentTransaction - Order Relationship (1-to-Many)
+        modelBuilder.Entity<PaymentTransaction>()
+            .HasOne(pt => pt.Order)
+            .WithMany(o => o.PaymentTransactions)
+            .HasForeignKey(pt => pt.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-                // PaymentTransaction Amount Precision
-                modelBuilder.Entity<PaymentTransaction>()
-                    .Property(pt => pt.Amount)
-                    .HasPrecision(18, 2);
-                    }
-                }
+        // PaymentTransaction Amount Precision
+        modelBuilder.Entity<PaymentTransaction>()
+            .Property(pt => pt.Amount)
+            .HasPrecision(18, 2);
+    }
+}

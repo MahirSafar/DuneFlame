@@ -2,12 +2,23 @@ using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DuneFlame.Infrastructure.Services;
 
-public class CategoryService(AppDbContext context) : ICategoryService
+public class CategoryService(
+    AppDbContext context,
+    IDistributedCache cache,
+    ILogger<CategoryService> logger) : ICategoryService
 {
     private readonly AppDbContext _context = context;
+    private readonly IDistributedCache _cache = cache;
+    private readonly ILogger<CategoryService> _logger = logger;
+    private const string CacheKeyPrefix = "categories-";
+    private const string AllCategoriesCacheKey = "categories-all";
+    private const int CacheDurationMinutes = 60; // 1 hour
 
     public async Task<Guid> CreateAsync(CreateCategoryRequest request)
     {
@@ -27,6 +38,10 @@ public class CategoryService(AppDbContext context) : ICategoryService
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
 
+        // Invalidate cache
+        await _cache.RemoveAsync(AllCategoriesCacheKey);
+        _logger.LogInformation("Category created and cache invalidated: {CategoryId}", category.Id);
+
         return category.Id;
     }
 
@@ -44,11 +59,38 @@ public class CategoryService(AppDbContext context) : ICategoryService
 
     public async Task<List<CategoryResponse>> GetAllAsync()
     {
-        var categories = await _context.Categories
-            .Include(c => c.Products)
-            .ToListAsync();
+        try
+        {
+            // Try to get from cache first
+            var cachedCategories = await _cache.GetStringAsync(AllCategoriesCacheKey);
+            if (cachedCategories != null)
+            {
+                _logger.LogInformation("Categories retrieved from cache");
+                return JsonSerializer.Deserialize<List<CategoryResponse>>(cachedCategories) ?? [];
+            }
 
-        return categories.Select(MapToResponse).ToList();
+            // Get from database
+            var categories = await _context.Categories
+                .Include(c => c.Products)
+                .ToListAsync();
+
+            var categoryResponses = categories.Select(MapToResponse).ToList();
+
+            // Cache the result
+            var cacheOptions = new DistributedCacheEntryOptions()
+                .SetAbsoluteExpiration(TimeSpan.FromMinutes(CacheDurationMinutes));
+
+            var serializedCategories = JsonSerializer.Serialize(categoryResponses);
+            await _cache.SetStringAsync(AllCategoriesCacheKey, serializedCategories, cacheOptions);
+
+            _logger.LogInformation("Categories retrieved from database and cached");
+            return categoryResponses;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving categories");
+            throw;
+        }
     }
 
     public async Task UpdateAsync(Guid id, CreateCategoryRequest request)
@@ -75,6 +117,10 @@ public class CategoryService(AppDbContext context) : ICategoryService
 
         _context.Categories.Update(category);
         await _context.SaveChangesAsync();
+
+        // Invalidate cache
+        await _cache.RemoveAsync(AllCategoriesCacheKey);
+        _logger.LogInformation("Category updated and cache invalidated: {CategoryId}", id);
     }
 
     public async Task DeleteAsync(Guid id)
@@ -91,6 +137,10 @@ public class CategoryService(AppDbContext context) : ICategoryService
 
         _context.Categories.Remove(category);
         await _context.SaveChangesAsync();
+
+        // Invalidate cache
+        await _cache.RemoveAsync(AllCategoriesCacheKey);
+        _logger.LogInformation("Category deleted and cache invalidated: {CategoryId}", id);
     }
 
     private static CategoryResponse MapToResponse(Category category)
@@ -105,3 +155,4 @@ public class CategoryService(AppDbContext context) : ICategoryService
         );
     }
 }
+

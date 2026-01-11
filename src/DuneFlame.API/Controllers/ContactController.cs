@@ -12,7 +12,7 @@ public class ContactController(IContactService contactService) : ControllerBase
     private readonly IContactService _contactService = contactService;
 
     [HttpPost]
-    [EnableRateLimiting("AuthPolicy")] // Spam qorunması
+    [EnableRateLimiting("ContactPolicy")]
     public async Task<IActionResult> SubmitMessage([FromBody] ContactMessageRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
