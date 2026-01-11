@@ -81,6 +81,7 @@ var jwtSettings = new JwtSettings();
 builder.Configuration.Bind(JwtSettings.SectionName, jwtSettings);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection(StripeSettings.SectionName));
 
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
@@ -94,6 +95,7 @@ builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IRewardService, RewardService>();
+builder.Services.AddScoped<IPaymentService, StripePaymentService>();
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 // 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>

@@ -25,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<OrderItem> OrderItems { get; set; }
     public DbSet<RewardWallet> RewardWallets { get; set; }
     public DbSet<RewardTransaction> RewardTransactions { get; set; }
+    public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -184,5 +185,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 modelBuilder.Entity<Order>()
                     .Property(o => o.PointsEarned)
                     .HasPrecision(18, 2);
-            }
-        }
+
+                // PaymentTransaction - Order Relationship (1-to-Many)
+                modelBuilder.Entity<PaymentTransaction>()
+                    .HasOne(pt => pt.Order)
+                    .WithMany(o => o.PaymentTransactions)
+                    .HasForeignKey(pt => pt.OrderId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // PaymentTransaction Amount Precision
+                modelBuilder.Entity<PaymentTransaction>()
+                    .Property(pt => pt.Amount)
+                    .HasPrecision(18, 2);
+                    }
+                }

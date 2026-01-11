@@ -4,13 +4,18 @@ using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Enums;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DuneFlame.Infrastructure.Services;
 
-public class OrderService(AppDbContext context, IRewardService rewardService) : IOrderService
+public class OrderService(
+    AppDbContext context,
+    IRewardService rewardService,
+    ILogger<OrderService> logger) : IOrderService
 {
     private readonly AppDbContext _context = context;
     private readonly IRewardService _rewardService = rewardService;
+    private readonly ILogger<OrderService> _logger = logger;
 
     public async Task<OrderDto> CreateOrderAsync(Guid userId, CreateOrderRequest request)
     {
@@ -99,19 +104,72 @@ public class OrderService(AppDbContext context, IRewardService rewardService) : 
             cart.Items.Clear();
 
             await _context.SaveChangesAsync();
-
-            // Calculate and earn cashback points (after order is created)
-            var cashback = RewardService.CalculateCashback(order.TotalAmount);
-            order.PointsEarned = cashback;
-            await _rewardService.EarnPointsAsync(userId, order.Id, cashback);
-
             await transaction.CommitAsync();
+
+            _logger.LogInformation("Order created with ID {OrderId} for user {UserId}. Total: {TotalAmount}", 
+                order.Id, userId, order.TotalAmount);
 
             return MapToOrderDto(order);
         }
-        catch
+        catch (Exception ex)
         {
             await transaction.RollbackAsync();
+            _logger.LogError(ex, "Error creating order for user {UserId}", userId);
+            throw;
+        }
+    }
+
+    public async Task ProcessPaymentSuccessAsync(string transactionId)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var paymentTransaction = await _context.PaymentTransactions
+                .Include(pt => pt.Order)
+                .FirstOrDefaultAsync(pt => pt.TransactionId == transactionId);
+
+            if (paymentTransaction == null)
+            {
+                _logger.LogWarning("Payment transaction not found: {TransactionId}", transactionId);
+                throw new KeyNotFoundException($"Payment transaction not found: {transactionId}");
+            }
+
+            // Idempotency check - if already processed, return
+            if (paymentTransaction.Status == "Succeeded")
+            {
+                _logger.LogInformation("Payment already processed: {TransactionId}", transactionId);
+                return;
+            }
+
+            // Update transaction status
+            paymentTransaction.Status = "Succeeded";
+            _context.PaymentTransactions.Update(paymentTransaction);
+
+            // Update order status
+            var order = paymentTransaction.Order;
+            if (order != null)
+            {
+                order.Status = OrderStatus.Paid;
+                _context.Orders.Update(order);
+
+                // Earn cashback points AFTER payment success
+                var cashback = RewardService.CalculateCashback(order.TotalAmount);
+                order.PointsEarned = cashback;
+                await _rewardService.EarnPointsAsync(order.UserId, order.Id, cashback);
+
+                _logger.LogInformation(
+                    "Payment succeeded for Order {OrderId}. Earned {Cashback} points",
+                    order.Id, cashback);
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Error processing payment success: {TransactionId}", transactionId);
             throw;
         }
     }
