@@ -96,6 +96,9 @@ builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IRewardService, RewardService>();
 builder.Services.AddScoped<IPaymentService, StripePaymentService>();
+builder.Services.AddScoped<IAdminUserService, AdminUserService>();
+builder.Services.AddScoped<IAdminContentService, AdminContentService>();
+builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 // 6. Authentication (JWT + Google)
 builder.Services.AddAuthentication(options =>

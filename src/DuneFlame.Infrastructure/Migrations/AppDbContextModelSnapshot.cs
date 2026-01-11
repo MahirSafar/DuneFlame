@@ -48,7 +48,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AboutSections");
+                    b.ToTable("AboutSections", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.AppSetting", b =>
@@ -73,7 +73,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AppSettings");
+                    b.ToTable("AppSettings", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ApplicationUser", b =>
@@ -168,7 +168,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Carts");
+                    b.ToTable("Carts", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.CartItem", b =>
@@ -200,7 +200,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("CartItems");
+                    b.ToTable("CartItems", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Category", b =>
@@ -225,7 +225,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Categories");
+                    b.ToTable("Categories", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ContactMessage", b =>
@@ -267,7 +267,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ContactMessages");
+                    b.ToTable("ContactMessages", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ExternalLogin", b =>
@@ -304,7 +304,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ExternalLogins");
+                    b.ToTable("ExternalLogins", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.NewsletterSubscription", b =>
@@ -340,7 +340,7 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("NewsletterSubscriptions");
+                    b.ToTable("NewsletterSubscriptions", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Order", b =>
@@ -381,7 +381,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Orders");
+                    b.ToTable("Orders", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.OrderItem", b =>
@@ -417,7 +417,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("OrderId");
 
-                    b.ToTable("OrderItems");
+                    b.ToTable("OrderItems", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.PasswordResetToken", b =>
@@ -449,7 +449,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("PasswordResetTokens");
+                    b.ToTable("PasswordResetTokens", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.PaymentTransaction", b =>
@@ -491,7 +491,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("OrderId");
 
-                    b.ToTable("PaymentTransactions");
+                    b.ToTable("PaymentTransactions", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Product", b =>
@@ -535,7 +535,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("CategoryId");
 
-                    b.ToTable("Products");
+                    b.ToTable("Products", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductImage", b =>
@@ -564,7 +564,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("ProductImages");
+                    b.ToTable("ProductImages", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RefreshToken", b =>
@@ -599,7 +599,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RewardTransaction", b =>
@@ -635,7 +635,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("WalletId");
 
-                    b.ToTable("RewardTransactions");
+                    b.ToTable("RewardTransactions", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RewardWallet", b =>
@@ -662,7 +662,7 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("RewardWallets");
+                    b.ToTable("RewardWallets", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Slider", b =>
@@ -701,7 +701,7 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Sliders");
+                    b.ToTable("Sliders", (string)null);
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.UserProfile", b =>
@@ -739,7 +739,7 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("UserProfiles");
+                    b.ToTable("UserProfiles", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", b =>
