@@ -1,6 +1,7 @@
 using DuneFlame.Application.DTOs.Admin;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -41,7 +42,7 @@ public class AdminContentService(
             var slider = await _context.Sliders.FindAsync(id);
             if (slider == null)
             {
-                throw new KeyNotFoundException($"Slider not found: {id}");
+                throw new NotFoundException($"Slider not found: {id}");
             }
 
             return new SliderDto(
@@ -89,7 +90,7 @@ public class AdminContentService(
             var slider = await _context.Sliders.FindAsync(id);
             if (slider == null)
             {
-                throw new KeyNotFoundException($"Slider not found: {id}");
+                throw new NotFoundException($"Slider not found: {id}");
             }
 
             slider.Title = request.Title;
@@ -118,7 +119,7 @@ public class AdminContentService(
             var slider = await _context.Sliders.FindAsync(id);
             if (slider == null)
             {
-                throw new KeyNotFoundException($"Slider not found: {id}");
+                throw new NotFoundException($"Slider not found: {id}");
             }
 
             _context.Sliders.Remove(slider);
@@ -158,7 +159,7 @@ public class AdminContentService(
             var section = await _context.AboutSections.FindAsync(id);
             if (section == null)
             {
-                throw new KeyNotFoundException($"About section not found: {id}");
+                throw new NotFoundException($"About section not found: {id}");
             }
 
             return new AboutSectionDto(section.Id, section.Title, section.Content, section.ImageUrl);
@@ -201,7 +202,7 @@ public class AdminContentService(
             var section = await _context.AboutSections.FindAsync(id);
             if (section == null)
             {
-                throw new KeyNotFoundException($"About section not found: {id}");
+                throw new NotFoundException($"About section not found: {id}");
             }
 
             section.Title = request.Title;
@@ -227,7 +228,7 @@ public class AdminContentService(
             var section = await _context.AboutSections.FindAsync(id);
             if (section == null)
             {
-                throw new KeyNotFoundException($"About section not found: {id}");
+                throw new NotFoundException($"About section not found: {id}");
             }
 
             _context.AboutSections.Remove(section);

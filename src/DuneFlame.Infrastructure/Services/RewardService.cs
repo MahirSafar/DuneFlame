@@ -2,6 +2,7 @@ using DuneFlame.Application.DTOs.Reward;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Enums;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,7 +21,7 @@ public class RewardService(AppDbContext context) : IRewardService
 
         if (wallet == null)
         {
-            throw new KeyNotFoundException($"Reward wallet not found for user {userId}");
+            throw new NotFoundException($"Reward wallet not found for user {userId}");
         }
 
         var totalEarned = wallet.Transactions
@@ -77,12 +78,12 @@ public class RewardService(AppDbContext context) : IRewardService
 
         if (wallet == null)
         {
-            throw new KeyNotFoundException($"Reward wallet not found for user {userId}");
+            throw new NotFoundException($"Reward wallet not found for user {userId}");
         }
 
         if (wallet.Balance < amount)
         {
-            throw new InvalidOperationException(
+            throw new BadRequestException(
                 $"Insufficient reward balance. Available: {wallet.Balance}, Requested: {amount}");
         }
 
@@ -109,7 +110,7 @@ public class RewardService(AppDbContext context) : IRewardService
 
         if (wallet == null)
         {
-            throw new KeyNotFoundException($"Reward wallet not found for user {userId}");
+            throw new NotFoundException($"Reward wallet not found for user {userId}");
         }
 
         // Find related transactions

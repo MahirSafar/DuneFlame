@@ -2,6 +2,7 @@ using DuneFlame.Application.DTOs.Order;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Enums;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -44,7 +45,7 @@ public class AdminOrderService(
             var order = await _context.Orders.FindAsync(orderId);
             if (order == null)
             {
-                throw new KeyNotFoundException($"Order not found: {orderId}");
+                throw new NotFoundException($"Order not found: {orderId}");
             }
 
             order.Status = status;
@@ -74,7 +75,7 @@ public class AdminOrderService(
 
             if (order == null)
             {
-                throw new KeyNotFoundException($"Order not found: {orderId}");
+                throw new NotFoundException($"Order not found: {orderId}");
             }
 
             _logger.LogInformation("Starting cancellation for Order {OrderId}", orderId);

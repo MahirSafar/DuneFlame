@@ -174,9 +174,9 @@ if (!app.Environment.IsEnvironment("Testing"))
     await DbInitializer.InitializeAsync(scope.ServiceProvider);
 }
 
+app.UseSerilogRequestLogging();
 // Middleware Sıralaması (Kritik!)
 app.UseMiddleware<GlobalExceptionMiddleware>();
-app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {

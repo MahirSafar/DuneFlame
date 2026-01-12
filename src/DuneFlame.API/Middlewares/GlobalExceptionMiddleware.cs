@@ -17,10 +17,25 @@ public class GlobalExceptionMiddleware(RequestDelegate next)
         {
             await _next(context);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
-            Log.Error(ex, "An exception occurred: {Message}", ex.Message);
+            // Loglama məntiqini ayırırıq
+            LogException(ex);
             await HandleExceptionAsync(context, ex);
+        }
+    }
+
+    private static void LogException(Exception ex)
+    {
+        // Əgər istifadəçi xətasıdırsa (400, 404, 409), bunu Warning kimi yaz (Stack Trace lazım deyil)
+        if (ex is BadRequestException || ex is NotFoundException || ex is ConflictException || ex is AuthenticationException)
+        {
+            Log.Warning("Business Logic Error: {Message}", ex.Message);
+        }
+        else
+        {
+            // Əgər sistem xətasıdırsa (500), bunu Error kimi yaz (Stack Trace lazımdır)
+            Log.Error(ex, "System Failure: {Message}", ex.Message);
         }
     }
 
@@ -42,32 +57,28 @@ public class GlobalExceptionMiddleware(RequestDelegate next)
             BadRequestException badRequestEx => new ErrorResponse
             {
                 StatusCode = (int)HttpStatusCode.BadRequest,
-                Message = badRequestEx.Message,
-                Details = null
+                Message = badRequestEx.Message
             },
             NotFoundException notFoundEx => new ErrorResponse
             {
                 StatusCode = (int)HttpStatusCode.NotFound,
-                Message = notFoundEx.Message,
-                Details = null
+                Message = notFoundEx.Message
             },
             ConflictException conflictEx => new ErrorResponse
             {
                 StatusCode = (int)HttpStatusCode.Conflict,
-                Message = conflictEx.Message,
-                Details = null
+                Message = conflictEx.Message
             },
             AuthenticationException authEx => new ErrorResponse
             {
                 StatusCode = (int)HttpStatusCode.Unauthorized,
-                Message = authEx.Message,
-                Details = null
+                Message = authEx.Message
             },
             _ => new ErrorResponse
             {
                 StatusCode = (int)HttpStatusCode.InternalServerError,
-                Message = "An unexpected error occurred. Please try again later.",
-                Details = exception.Message
+                Message = "An unexpected error occurred.",
+                Details = exception.Message // Production-da bunu gizlətmək olar
             }
         };
     }

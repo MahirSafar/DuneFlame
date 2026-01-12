@@ -1,6 +1,7 @@
 using DuneFlame.Application.DTOs.Admin;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Exceptions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -53,7 +54,7 @@ public class AdminUserService(
             var user = await _userManager.FindByIdAsync(userId.ToString());
             if (user == null)
             {
-                throw new KeyNotFoundException($"User not found: {userId}");
+                throw new NotFoundException($"User not found: {userId}");
             }
 
             if (user.LockoutEnabled && user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow)
@@ -84,14 +85,14 @@ public class AdminUserService(
             var user = await _userManager.FindByIdAsync(userId.ToString());
             if (user == null)
             {
-                throw new KeyNotFoundException($"User not found: {userId}");
+                throw new NotFoundException($"User not found: {userId}");
             }
 
             // Verify role exists
             var roleExists = await _roleManager.RoleExistsAsync(role);
             if (!roleExists)
             {
-                throw new InvalidOperationException($"Role does not exist: {role}");
+                throw new BadRequestException($"Role does not exist: {role}");
             }
 
             // Remove all roles and assign the new one

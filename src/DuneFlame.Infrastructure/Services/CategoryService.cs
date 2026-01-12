@@ -1,5 +1,6 @@
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -27,7 +28,7 @@ public class CategoryService(
             .FirstOrDefaultAsync(c => c.Slug == request.Slug);
 
         if (existingCategory != null)
-            throw new InvalidOperationException("Category with this slug already exists.");
+            throw new ConflictException("Category with this slug already exists.");
 
         var category = new Category
         {
@@ -52,7 +53,7 @@ public class CategoryService(
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)
-            throw new KeyNotFoundException($"Category with ID {id} not found.");
+            throw new NotFoundException($"Category with ID {id} not found.");
 
         return MapToResponse(category);
     }

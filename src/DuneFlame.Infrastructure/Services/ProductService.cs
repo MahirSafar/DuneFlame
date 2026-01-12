@@ -2,6 +2,7 @@ using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -80,7 +81,7 @@ public class ProductService(
             .FirstOrDefaultAsync(p => p.Id == id);
 
         if (product == null)
-            throw new KeyNotFoundException($"Product with ID {id} not found.");
+            throw new NotFoundException($"Product with ID {id} not found.");
 
         var response = MapToResponse(product);
 
@@ -163,7 +164,7 @@ public class ProductService(
             .FirstOrDefaultAsync(p => p.Id == id);
 
         if (product == null)
-            throw new KeyNotFoundException($"Product with ID {id} not found.");
+            throw new NotFoundException($"Product with ID {id} not found.");
 
         // Update basic fields
         product.Name = request.Name;
@@ -217,7 +218,7 @@ public class ProductService(
             .FirstOrDefaultAsync(p => p.Id == id);
 
         if (product == null)
-            throw new KeyNotFoundException($"Product with ID {id} not found.");
+            throw new NotFoundException($"Product with ID {id} not found.");
 
         // Delete images from storage
         foreach (var image in product.Images)

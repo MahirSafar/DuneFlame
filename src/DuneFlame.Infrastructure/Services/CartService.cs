@@ -1,6 +1,7 @@
 using DuneFlame.Application.DTOs.Cart;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,7 +21,7 @@ public class CartService(AppDbContext context) : ICartService
 
         if (cart == null)
         {
-            throw new KeyNotFoundException($"Cart not found for user {userId}");
+            throw new NotFoundException($"Cart not found for user {userId}");
         }
 
         return MapToCartDto(cart);
@@ -31,12 +32,12 @@ public class CartService(AppDbContext context) : ICartService
         var product = await _context.Products.FindAsync(request.ProductId);
         if (product == null)
         {
-            throw new KeyNotFoundException($"Product with ID {request.ProductId} not found");
+            throw new NotFoundException($"Product with ID {request.ProductId} not found");
         }
 
         if (product.StockQuantity < request.Quantity)
         {
-            throw new InvalidOperationException($"Insufficient stock for product {product.Name}. Available: {product.StockQuantity}");
+            throw new BadRequestException($"Insufficient stock for product {product.Name}. Available: {product.StockQuantity}");
         }
 
         var cart = await _context.Carts
@@ -87,13 +88,13 @@ public class CartService(AppDbContext context) : ICartService
 
         if (cart == null)
         {
-            throw new KeyNotFoundException($"Cart not found for user {userId}");
+            throw new NotFoundException($"Cart not found for user {userId}");
         }
 
         var cartItem = cart.Items.FirstOrDefault(ci => ci.Id == itemId);
         if (cartItem == null)
         {
-            throw new KeyNotFoundException($"Cart item with ID {itemId} not found");
+            throw new NotFoundException($"Cart item with ID {itemId} not found");
         }
 
         cart.Items.Remove(cartItem);

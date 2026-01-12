@@ -2,6 +2,7 @@ using DuneFlame.Application.DTOs.Order;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Enums;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,7 @@ public class OrderService(
 
             if (cart == null || cart.Items.Count == 0)
             {
-                throw new InvalidOperationException("Cart is empty. Cannot create order.");
+                throw new BadRequestException("Cart is empty. Cannot create order.");
             }
 
             var order = new Order
@@ -50,13 +51,13 @@ public class OrderService(
                 var product = cartItem.Product;
                 if (product == null)
                 {
-                    throw new KeyNotFoundException($"Product with ID {cartItem.ProductId} not found");
+                    throw new NotFoundException($"Product with ID {cartItem.ProductId} not found");
                 }
 
                 // Check stock availability
                 if (product.StockQuantity < cartItem.Quantity)
                 {
-                    throw new InvalidOperationException(
+                    throw new BadRequestException(
                         $"Insufficient stock for product '{product.Name}'. " +
                         $"Available: {product.StockQuantity}, Requested: {cartItem.Quantity}");
                 }
@@ -132,7 +133,7 @@ public class OrderService(
             if (paymentTransaction == null)
             {
                 _logger.LogWarning("Payment transaction not found: {TransactionId}", transactionId);
-                throw new KeyNotFoundException($"Payment transaction not found: {transactionId}");
+                throw new NotFoundException($"Payment transaction not found: {transactionId}");
             }
 
             // Idempotency check - if already processed, return
@@ -193,7 +194,7 @@ public class OrderService(
 
         if (order == null)
         {
-            throw new KeyNotFoundException($"Order with ID {id} not found");
+            throw new NotFoundException($"Order with ID {id} not found");
         }
 
         return MapToOrderDto(order);

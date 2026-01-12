@@ -164,7 +164,7 @@ public class AuthService(
     {
         // Google-dan gələn məlumatı oxu
         var info = await _signInManager.GetExternalLoginInfoAsync();
-        if (info == null) throw new Exception("Error loading external login information.");
+        if (info == null) throw new BadRequestException("Error loading external login information.");
 
         // Bu Google hesabı ilə əvvəl giriş edilibmi?
         var result = await _signInManager.ExternalLoginSignInAsync(info.LoginProvider, info.ProviderKey, isPersistent: false);
