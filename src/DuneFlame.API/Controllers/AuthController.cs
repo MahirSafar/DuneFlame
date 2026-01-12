@@ -68,7 +68,7 @@ public class AuthController(IAuthService authService) : ControllerBase
     [HttpGet("external-login")]
     public IActionResult ExternalLogin(string provider = "Google")
     {
-        var redirectUrl = Url.Action(nameof(ExternalLoginCallback));
+        var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", null, Request.Scheme);
         var properties = _authService.ConfigureExternalLoginsAsync(provider, redirectUrl!).Result;
         return Challenge(properties, provider);
     }
@@ -76,12 +76,23 @@ public class AuthController(IAuthService authService) : ControllerBase
         [HttpGet("external-callback")]
         public async Task<IActionResult> ExternalLoginCallback()
         {
-        var response = await _authService.ExternalLoginCallbackAsync();
+            var response = await _authService.ExternalLoginCallbackAsync();
 
-        // Tokenləri URL vasitəsilə Next.js-ə ötürürük (və ya cookie ilə)
-        var redirectUrl = $"http://localhost:3000/auth/callback?token={response.AccessToken}&refreshToken={response.RefreshToken}";
-        return Redirect(redirectUrl);
-    }
+            // Construct frontend callback URL with all required parameters
+            // Frontend can extract accessToken, refreshToken, userId, and roles from query string
+            var frontendCallbackUrl = "http://localhost:3000/auth/google-callback";
+
+            var redirectUrl = $"{frontendCallbackUrl}?" +
+                $"userId={Uri.EscapeDataString(response.Id.ToString())}&" +
+                $"accessToken={Uri.EscapeDataString(response.AccessToken)}&" +
+                $"refreshToken={Uri.EscapeDataString(response.RefreshToken)}&" +
+                $"email={Uri.EscapeDataString(response.Email)}&" +
+                $"firstName={Uri.EscapeDataString(response.FirstName)}&" +
+                $"lastName={Uri.EscapeDataString(response.LastName)}&" +
+                $"roles={Uri.EscapeDataString(string.Join(",", response.Roles))}";
+
+            return Redirect(redirectUrl);
+        }
 
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
