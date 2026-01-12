@@ -47,7 +47,12 @@ public class GlobalExceptionMiddleware(RequestDelegate next)
 
         context.Response.StatusCode = response.StatusCode;
 
-        return context.Response.WriteAsync(JsonSerializer.Serialize(response));
+        var jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        return context.Response.WriteAsync(JsonSerializer.Serialize(response, jsonOptions));
     }
 
     private static ErrorResponse MapExceptionToErrorResponse(Exception exception)
