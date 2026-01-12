@@ -1,6 +1,7 @@
 ﻿using DuneFlame.Application.DTOs.Auth;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -30,7 +31,7 @@ public class AuthService(
     {
         var existingUser = await _userManager.FindByEmailAsync(request.Email);
         if (existingUser != null)
-            throw new Exception("User with this email already exists.");
+            throw new ConflictException("User with this email already exists.");
 
         var user = new ApplicationUser
         {
@@ -45,7 +46,7 @@ public class AuthService(
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new Exception($"Registration failed: {errors}");
+            throw new BadRequestException($"Registration failed: {errors}");
         }
 
         await _userManager.AddToRoleAsync(user, "Customer");
@@ -53,7 +54,7 @@ public class AuthService(
         var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
         await _emailService.SendVerificationEmailAsync(user.Email!, user.Id.ToString(), token);
 
-        return true; // Artıq GenerateAuthResponseAsync çağırmırıq
+        return true;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
