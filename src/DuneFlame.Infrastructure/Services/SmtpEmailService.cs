@@ -55,7 +55,7 @@ public class SmtpEmailService(IOptions<EmailSettings> settings) : IEmailService
     public async Task SendVerificationEmailAsync(string to, string userId, string token)
     {
         // Link points to API, which then redirects to Frontend
-        var verificationLink = $"https://localhost:7190/api/v1/auth/verify-email?userId={userId}&token={WebUtility.UrlEncode(token)}";
+        var verificationLink = $"https://localhost:7190/api/v1/auth/verify-email?userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(token)}";
 
         var body = GetHtmlTemplate(
             "Verify Your Account",
@@ -69,7 +69,7 @@ public class SmtpEmailService(IOptions<EmailSettings> settings) : IEmailService
     public async Task SendPasswordResetEmailAsync(string to, string userId, string token)
     {
         // Password reset links usually go directly to the Frontend (Next.js)
-        var frontendResetUrl = $"http://localhost:3000/auth/reset-password?userId={userId}&token={WebUtility.UrlEncode(token)}";
+        var frontendResetUrl = $"http://localhost:3000/auth/reset-password?userId={Uri.EscapeDataString(userId)}&email={Uri.EscapeDataString(to)}&token={Uri.EscapeDataString(token)}";
 
         var body = GetHtmlTemplate(
             "Reset Your Password",
@@ -82,7 +82,7 @@ public class SmtpEmailService(IOptions<EmailSettings> settings) : IEmailService
 
     public async Task SendNewsletterVerificationAsync(string to, string token)
     {
-        var link = $"https://localhost:7190/api/v1/newsletter/verify?token={WebUtility.UrlEncode(token)}";
+        var link = $"https://localhost:7190/api/v1/newsletter/verify?token={Uri.EscapeDataString(token)}";
 
         var body = GetHtmlTemplate(
             "Confirm Subscription",

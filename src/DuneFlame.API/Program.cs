@@ -72,9 +72,9 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("AuthPolicy", opt => { opt.PermitLimit = 5; opt.Window = TimeSpan.FromMinutes(1); });
-    options.AddFixedWindowLimiter("CheckoutPolicy", opt => { opt.PermitLimit = 5; opt.Window = TimeSpan.FromMinutes(1); });
-    options.AddFixedWindowLimiter("ContactPolicy", opt => { opt.PermitLimit = 3; opt.Window = TimeSpan.FromMinutes(1); });
+    options.AddFixedWindowLimiter("AuthPolicy", opt => { opt.PermitLimit = 50; opt.Window = TimeSpan.FromMinutes(1); });
+    options.AddFixedWindowLimiter("CheckoutPolicy", opt => { opt.PermitLimit = 20; opt.Window = TimeSpan.FromMinutes(1); });
+    options.AddFixedWindowLimiter("ContactPolicy", opt => { opt.PermitLimit = 10; opt.Window = TimeSpan.FromMinutes(1); });
     options.AddFixedWindowLimiter("PublicPolicy", opt => { opt.PermitLimit = 100; opt.Window = TimeSpan.FromMinutes(1); });
 });
 
@@ -105,6 +105,7 @@ builder.Services.AddScoped<IPaymentService, StripePaymentService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IAdminContentService, AdminContentService>();
 builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
+builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
 
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 
@@ -144,6 +145,14 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowCredentials();
     });
+});
+
+// --- COOKIE POLICY (FIX FOR OAUTH CORRELATION FAILURES) ---
+// Relaxed SameSite policy for localhost development with mixed protocols (http/https)
+builder.Services.Configure<CookiePolicyOptions>(options =>
+{
+    options.MinimumSameSitePolicy = SameSiteMode.Lax;
+    options.Secure = CookieSecurePolicy.SameAsRequest;
 });
 
 builder.Services.AddControllers();
@@ -195,6 +204,7 @@ if (!app.Environment.IsEnvironment("Testing"))
     app.UseRateLimiter();
 }
 
+app.UseCookiePolicy();
 app.UseAuthentication();
 app.UseAuthorization();
 
