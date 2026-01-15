@@ -28,8 +28,13 @@ public class ProductService(
             Name = request.Name,
             Description = request.Description,
             Price = request.Price,
+            DiscountPercentage = request.DiscountPercentage,
             StockQuantity = request.StockQuantity,
             CategoryId = request.CategoryId,
+            OriginId = request.OriginId,
+            RoastLevel = request.RoastLevel,
+            Weight = request.Weight,
+            FlavorNotes = request.FlavorNotes,
             IsActive = true
         };
 
@@ -77,6 +82,7 @@ public class ProductService(
         // Fetch from database if not in cache
         var product = await _context.Products
             .Include(p => p.Category)
+            .Include(p => p.Origin)
             .Include(p => p.Images)
             .FirstOrDefaultAsync(p => p.Id == id);
 
@@ -110,6 +116,7 @@ public class ProductService(
 
         var query = _context.Products
             .Include(p => p.Category)
+            .Include(p => p.Origin)
             .Include(p => p.Images)
             .Where(p => p.IsActive)
             .AsQueryable();
@@ -124,7 +131,8 @@ public class ProductService(
         {
             query = query.Where(p =>
                 p.Name.Contains(search) ||
-                p.Description.Contains(search));
+                p.Description.Contains(search) ||
+                p.FlavorNotes.Contains(search));
         }
 
         // Sorting
@@ -170,8 +178,13 @@ public class ProductService(
         product.Name = request.Name;
         product.Description = request.Description;
         product.Price = request.Price;
+        product.DiscountPercentage = request.DiscountPercentage;
         product.StockQuantity = request.StockQuantity;
         product.CategoryId = request.CategoryId;
+        product.OriginId = request.OriginId;
+        product.RoastLevel = request.RoastLevel;
+        product.Weight = request.Weight;
+        product.FlavorNotes = request.FlavorNotes;
         product.UpdatedAt = DateTime.UtcNow;
 
         // Handle images if provided
@@ -240,11 +253,16 @@ public class ProductService(
             Name: product.Name,
             Description: product.Description,
             Price: product.Price,
-            OldPrice: product.OldPrice,
+            DiscountPercentage: product.DiscountPercentage,
             StockQuantity: product.StockQuantity,
             IsActive: product.IsActive,
             CategoryId: product.CategoryId,
             CategoryName: product.Category?.Name ?? "Unknown",
+            OriginId: product.OriginId,
+            OriginName: product.Origin?.Name,
+            RoastLevel: product.RoastLevel,
+            Weight: product.Weight,
+            FlavorNotes: product.FlavorNotes,
             CreatedAt: product.CreatedAt,
             UpdatedAt: product.UpdatedAt,
             Images: product.Images.Select(i => new ProductImageDto(

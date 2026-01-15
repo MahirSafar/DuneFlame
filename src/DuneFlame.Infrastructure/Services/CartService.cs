@@ -118,16 +118,27 @@ public class CartService(AppDbContext context) : ICartService
 
     private static CartDto MapToCartDto(Cart cart)
     {
-        var totalAmount = cart.Items.Sum(ci => (ci.Product?.Price ?? 0) * ci.Quantity);
+        var totalAmount = cart.Items.Sum(ci => 
+        {
+            var product = ci.Product;
+            if (product == null) return 0;
+            var sellingPrice = product.Price * (1 - product.DiscountPercentage / 100);
+            return sellingPrice * ci.Quantity;
+        });
 
-        var cartItems = cart.Items.Select(ci => new CartItemDto(
-            ci.Id,
-            ci.ProductId,
-            ci.Product?.Name ?? "Unknown",
-            ci.Product?.Price ?? 0,
-            ci.Quantity,
-            ci.Product?.Images.FirstOrDefault()?.ImageUrl
-        )).ToList();
+        var cartItems = cart.Items.Select(ci => 
+        {
+            var product = ci.Product;
+            var sellingPrice = product?.Price * (1 - (product?.DiscountPercentage ?? 0) / 100) ?? 0;
+            return new CartItemDto(
+                ci.Id,
+                ci.ProductId,
+                product?.Name ?? "Unknown",
+                sellingPrice,
+                ci.Quantity,
+                product?.Images.FirstOrDefault()?.ImageUrl
+            );
+        }).ToList();
 
         return new CartDto(cart.Id, totalAmount, cartItems);
     }

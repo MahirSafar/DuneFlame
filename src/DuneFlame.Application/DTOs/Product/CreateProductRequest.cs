@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using DuneFlame.Domain.Enums;
+using Microsoft.AspNetCore.Http;
 
 namespace DuneFlame.Application.DTOs.Product;
 
@@ -6,8 +7,12 @@ public record CreateProductRequest(
     string Name,
     string Description,
     decimal Price,
-    decimal? OldPrice,
+    decimal DiscountPercentage,
     int StockQuantity,
     Guid CategoryId,
-    List<IFormFile>? Images // Şəkillər buradan gəlir
+    Guid? OriginId,
+    RoastLevel RoastLevel,
+    int Weight,
+    string FlavorNotes,
+    List<IFormFile>? Images
 );

@@ -62,17 +62,20 @@ public class OrderService(
                         $"Available: {product.StockQuantity}, Requested: {cartItem.Quantity}");
                 }
 
+                // Calculate selling price: Price * (1 - DiscountPercentage/100)
+                var sellingPrice = product.Price * (1 - product.DiscountPercentage / 100);
+
                 // Create OrderItem (snapshot)
                 var orderItem = new OrderItem
                 {
                     ProductId = product.Id,
                     ProductName = product.Name,
-                    UnitPrice = product.Price,
+                    UnitPrice = sellingPrice,
                     Quantity = cartItem.Quantity
                 };
 
                 order.Items.Add(orderItem);
-                totalAmount += product.Price * cartItem.Quantity;
+                totalAmount += sellingPrice * cartItem.Quantity;
 
                 // Decrement product stock
                 product.StockQuantity -= cartItem.Quantity;

@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ContactMessage> ContactMessages { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<Category> Categories { get; set; }
+    public DbSet<Origin> Origins { get; set; }
     public DbSet<ProductImage> ProductImages { get; set; }
     public DbSet<Slider> Sliders { get; set; }
     public DbSet<AboutSection> AboutSections { get; set; }
@@ -87,6 +88,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         .HasForeignKey(p => p.CategoryId)
         .OnDelete(DeleteBehavior.Restrict); // Kateqoriya silinərsə məhsulları silmə (xəta ver)
 
+        // Product - Origin Relationship
+        modelBuilder.Entity<Product>()
+            .HasOne(p => p.Origin)
+            .WithMany(o => o.Products)
+            .HasForeignKey(p => p.OriginId)
+            .OnDelete(DeleteBehavior.SetNull); // Origin silinərsə OriginId-ni null-a çevir
+
         // Product - Images Relationship
         modelBuilder.Entity<ProductImage>()
             .HasOne(i => i.Product)
@@ -100,7 +108,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasPrecision(18, 2);
 
         modelBuilder.Entity<Product>()
-            .Property(p => p.OldPrice)
+            .Property(p => p.DiscountPercentage)
             .HasPrecision(18, 2);
 
         // Cart - User Relationship (1-to-Many)

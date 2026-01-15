@@ -21,16 +21,15 @@ public class CreateProductRequestValidator : AbstractValidator<CreateProductRequ
 
         RuleFor(x => x.Price)
             .GreaterThan(0)
-            .WithMessage("Product price must be greater than 0.")
+            .WithMessage("Price must be greater than 0.")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
-            .WithMessage("Product price precision is invalid.");
+            .WithMessage("Price precision is invalid.");
 
-        RuleFor(x => x.OldPrice)
-            .GreaterThan(0)
-            .When(x => x.OldPrice.HasValue)
-            .WithMessage("Old price must be greater than 0 if provided.")
-            .PrecisionScale(18, 2, ignoreTrailingZeros: true)
-            .WithMessage("Old price precision is invalid.");
+        RuleFor(x => x.DiscountPercentage)
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("Discount percentage cannot be negative.")
+            .LessThanOrEqualTo(100)
+            .WithMessage("Discount percentage cannot exceed 100.");
 
         RuleFor(x => x.StockQuantity)
             .GreaterThanOrEqualTo(0)
@@ -39,6 +38,16 @@ public class CreateProductRequestValidator : AbstractValidator<CreateProductRequ
         RuleFor(x => x.CategoryId)
             .NotEmpty()
             .WithMessage("Category ID is required.");
+
+        RuleFor(x => x.Weight)
+            .GreaterThan(0)
+            .WithMessage("Weight must be greater than 0.");
+
+        RuleFor(x => x.FlavorNotes)
+            .NotEmpty()
+            .WithMessage("Flavor notes are required.")
+            .MaximumLength(500)
+            .WithMessage("Flavor notes must not exceed 500 characters.");
 
         RuleFor(x => x.Images)
             .Custom((images, context) =>
@@ -67,3 +76,4 @@ public class CreateProductRequestValidator : AbstractValidator<CreateProductRequ
             });
     }
 }
+
