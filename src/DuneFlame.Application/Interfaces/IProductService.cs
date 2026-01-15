@@ -18,7 +18,7 @@ public interface IProductService
         Guid? categoryId = null);
 
     // Update
-    Task UpdateAsync(Guid id, CreateProductRequest request);
+    Task UpdateAsync(Guid id, UpdateProductRequest request);
 
     // Delete
     Task DeleteAsync(Guid id);

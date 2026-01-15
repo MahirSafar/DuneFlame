@@ -15,18 +15,18 @@ public class PublicProductController(IProductService productService) : Controlle
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<ProductResponse>>> GetAllProducts(
-        [FromQuery] int page = 1,
-        [FromQuery] int size = 10,
-        [FromQuery] string? sort = null,
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 10,
         [FromQuery] string? search = null,
+        [FromQuery] string? sortBy = null,
         [FromQuery] Guid? categoryId = null)
     {
         try
         {
             var result = await _productService.GetAllAsync(
-                pageNumber: page,
-                pageSize: size,
-                sortBy: sort,
+                pageNumber: pageNumber,
+                pageSize: pageSize,
+                sortBy: sortBy,
                 search: search,
                 categoryId: categoryId);
 

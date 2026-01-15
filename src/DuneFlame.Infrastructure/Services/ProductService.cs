@@ -154,18 +154,18 @@ public class ProductService(
             .Take(pageSize)
             .ToListAsync();
 
-        var responses = products.Select(MapToResponse).ToList();
+            var responses = products.Select(MapToResponse).ToList();
 
-        return new PagedResult<ProductResponse>(
-            Items: responses,
-            TotalCount: totalCount,
-            PageNumber: pageNumber,
-            PageSize: pageSize,
-            TotalPages: totalPages
-        );
-    }
+            return new PagedResult<ProductResponse>(
+                responses,
+                totalCount,
+                pageNumber,
+                pageSize,
+                totalPages
+            );
+        }
 
-    public async Task UpdateAsync(Guid id, CreateProductRequest request)
+    public async Task UpdateAsync(Guid id, UpdateProductRequest request)
     {
         var product = await _context.Products
             .Include(p => p.Images)
@@ -174,7 +174,57 @@ public class ProductService(
         if (product == null)
             throw new NotFoundException($"Product with ID {id} not found.");
 
-        // Update basic fields
+        // Step A: Delete specified images
+        if (request.DeletedImageIds != null && request.DeletedImageIds.Count > 0)
+        {
+            var imagesToDelete = product.Images
+                .Where(img => request.DeletedImageIds.Contains(img.Id))
+                .ToList();
+
+            foreach (var image in imagesToDelete)
+            {
+                _fileService.DeleteFile(image.ImageUrl);
+                _context.ProductImages.Remove(image);
+            }
+        }
+
+        // Step B: Set main image if provided
+        if (request.SetMainImageId.HasValue)
+        {
+            var targetImage = product.Images.FirstOrDefault(img => img.Id == request.SetMainImageId.Value);
+
+            if (targetImage == null)
+                throw new NotFoundException($"Image with ID {request.SetMainImageId.Value} not found for this product.");
+
+            // Set all images to non-main
+            foreach (var img in product.Images)
+            {
+                img.IsMain = false;
+            }
+
+            // Set the target image as main
+            targetImage.IsMain = true;
+        }
+
+        // Step C: Add new images if provided
+        if (request.Images != null && request.Images.Count > 0)
+        {
+            foreach (var imageFile in request.Images)
+            {
+                var imageUrl = await _fileService.UploadImageAsync(imageFile, "products");
+
+                var productImage = new ProductImage
+                {
+                    ImageUrl = imageUrl,
+                    ProductId = product.Id,
+                    IsMain = false // New images are not main by default
+                };
+
+                _context.ProductImages.Add(productImage);
+            }
+        }
+
+        // Step D: Update standard fields
         product.Name = request.Name;
         product.Description = request.Description;
         product.Price = request.Price;
@@ -186,36 +236,6 @@ public class ProductService(
         product.Weight = request.Weight;
         product.FlavorNotes = request.FlavorNotes;
         product.UpdatedAt = DateTime.UtcNow;
-
-        // Handle images if provided
-        if (request.Images != null && request.Images.Count > 0)
-        {
-            // Delete old images
-            foreach (var image in product.Images)
-            {
-                _fileService.DeleteFile(image.ImageUrl);
-                _context.ProductImages.Remove(image);
-            }
-
-            // Add new images
-            bool isMainSet = false;
-            foreach (var imageFile in request.Images)
-            {
-                var imageUrl = await _fileService.UploadImageAsync(imageFile, "products");
-
-                var productImage = new ProductImage
-                {
-                    ImageUrl = imageUrl,
-                    ProductId = product.Id,
-                    IsMain = !isMainSet
-                };
-
-                if (!isMainSet)
-                    isMainSet = true;
-
-                _context.ProductImages.Add(productImage);
-            }
-        }
 
         _context.Products.Update(product);
         await _context.SaveChangesAsync();

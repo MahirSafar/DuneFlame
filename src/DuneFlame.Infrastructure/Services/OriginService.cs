@@ -53,16 +53,16 @@ public class OriginService(AppDbContext context) : IOriginService
             .Take(pageSize)
             .ToListAsync();
 
-        var responses = origins.Select(MapToResponse).ToList();
+            var responses = origins.Select(MapToResponse).ToList();
 
-        return new PagedResult<OriginResponse>(
-            Items: responses,
-            TotalCount: totalCount,
-            PageNumber: pageNumber,
-            PageSize: pageSize,
-            TotalPages: totalPages
-        );
-    }
+            return new PagedResult<OriginResponse>(
+                responses,
+                totalCount,
+                pageNumber,
+                pageSize,
+                totalPages
+            );
+        }
 
     public async Task UpdateAsync(Guid id, CreateOriginRequest request)
     {

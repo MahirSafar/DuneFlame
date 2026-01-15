@@ -1,3 +1,4 @@
+using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
 using DuneFlame.Application.Interfaces;
 using FluentValidation;
@@ -11,15 +12,42 @@ namespace DuneFlame.API.Controllers;
 [Authorize(Roles = "Admin")]
 public class AdminProductController(
     IProductService productService,
-    IValidator<CreateProductRequest> productValidator) : ControllerBase
+    IValidator<CreateProductRequest> createProductValidator,
+    IValidator<UpdateProductRequest> updateProductValidator) : ControllerBase
 {
     private readonly IProductService _productService = productService;
-    private readonly IValidator<CreateProductRequest> _productValidator = productValidator;
+    private readonly IValidator<CreateProductRequest> _createProductValidator = createProductValidator;
+    private readonly IValidator<UpdateProductRequest> _updateProductValidator = updateProductValidator;
+
+    [HttpGet]
+    public async Task<ActionResult<PagedResult<ProductResponse>>> GetAllProducts(
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? search = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] Guid? categoryId = null)
+    {
+        try
+        {
+            var result = await _productService.GetAllAsync(
+                pageNumber: pageNumber,
+                pageSize: pageSize,
+                sortBy: sortBy,
+                search: search,
+                categoryId: categoryId);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     [HttpPost]
     public async Task<IActionResult> CreateProduct([FromForm] CreateProductRequest request)
     {
-        var validationResult = await _productValidator.ValidateAsync(request);
+        var validationResult = await _createProductValidator.ValidateAsync(request);
         if (!validationResult.IsValid)
             return BadRequest(validationResult.Errors);
 
@@ -35,9 +63,9 @@ public class AdminProductController(
     }
 
     [HttpPut("{id:guid}")]
-    public async Task<IActionResult> UpdateProduct(Guid id, [FromForm] CreateProductRequest request)
+    public async Task<IActionResult> UpdateProduct(Guid id, [FromForm] UpdateProductRequest request)
     {
-        var validationResult = await _productValidator.ValidateAsync(request);
+        var validationResult = await _updateProductValidator.ValidateAsync(request);
         if (!validationResult.IsValid)
             return BadRequest(validationResult.Errors);
 
