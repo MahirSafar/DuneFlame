@@ -1,4 +1,6 @@
 using DuneFlame.Application.DTOs.Admin;
+using DuneFlame.Application.DTOs.Common;
+using DuneFlame.Application.DTOs.Order;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Enums;
 using FluentValidation;
@@ -17,19 +19,27 @@ public class AdminOrderController(
     private readonly IAdminOrderService _adminOrderService = adminOrderService;
     private readonly IValidator<UpdateOrderStatusRequest> _updateStatusValidator = updateStatusValidator;
 
-    [HttpGet]
-    public async Task<IActionResult> GetAllOrders()
-    {
-        try
-        {
-            var orders = await _adminOrderService.GetAllOrdersAsync();
-            return Ok(orders);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
+     [HttpGet]
+     public async Task<ActionResult<PagedResult<OrderDto>>> GetAllOrders(
+         [FromQuery] int pageNumber = 1,
+         [FromQuery] int pageSize = 10,
+         [FromQuery] OrderStatus? status = null,
+         [FromQuery] string? search = null)
+     {
+         try
+         {
+             var result = await _adminOrderService.GetAllOrdersAsync(
+                 pageNumber: pageNumber,
+                 pageSize: pageSize,
+                 status: status,
+                 searchTerm: search);
+             return Ok(result);
+         }
+         catch (Exception ex)
+         {
+             return BadRequest(new { message = ex.Message });
+         }
+     }
 
     [HttpPut("{id:guid}/status")]
     public async Task<IActionResult> UpdateOrderStatus(Guid id, [FromBody] UpdateOrderStatusRequest request)

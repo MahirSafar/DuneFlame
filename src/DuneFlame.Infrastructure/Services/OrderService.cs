@@ -102,18 +102,24 @@ public class OrderService(
                 }
             }
 
-            _context.Orders.Add(order);
+             _context.Orders.Add(order);
 
-            // Clear cart
-            cart.Items.Clear();
+             // Clear cart
+             cart.Items.Clear();
 
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
+             await _context.SaveChangesAsync();
+             await transaction.CommitAsync();
 
-            _logger.LogInformation("Order created with ID {OrderId} for user {UserId}. Total: {TotalAmount}", 
-                order.Id, userId, order.TotalAmount);
+             _logger.LogInformation("Order created with ID {OrderId} for user {UserId}. Total: {TotalAmount}", 
+                 order.Id, userId, order.TotalAmount);
 
-            return MapToOrderDto(order);
+             // Reload order with related data for mapping
+             var createdOrder = await _context.Orders
+                 .Include(o => o.Items)
+                 .Include(o => o.ApplicationUser)
+                 .FirstOrDefaultAsync(o => o.Id == order.Id);
+
+             return MapToOrderDto(createdOrder!);
         }
         catch (Exception ex)
         {
@@ -178,41 +184,72 @@ public class OrderService(
         }
     }
 
-    public async Task<List<OrderDto>> GetMyOrdersAsync(Guid userId)
-    {
-        var orders = await _context.Orders
-            .Include(o => o.Items)
-            .Where(o => o.UserId == userId)
-            .OrderByDescending(o => o.CreatedAt)
-            .ToListAsync();
+     public async Task<List<OrderDto>> GetMyOrdersAsync(Guid userId)
+     {
+         var orders = await _context.Orders
+             .Include(o => o.Items)
+             .Include(o => o.ApplicationUser)
+             .Where(o => o.UserId == userId)
+             .OrderByDescending(o => o.CreatedAt)
+             .ToListAsync();
 
-        return orders.Select(MapToOrderDto).ToList();
-    }
+         return orders.Select(MapToOrderDto).ToList();
+     }
 
-    public async Task<OrderDto> GetOrderByIdAsync(Guid id)
-    {
-        var order = await _context.Orders
-            .Include(o => o.Items)
-            .FirstOrDefaultAsync(o => o.Id == id);
+     public async Task<OrderDto> GetOrderByIdAsync(Guid id)
+     {
+         var order = await _context.Orders
+             .Include(o => o.Items)
+             .Include(o => o.ApplicationUser)
+             .Include(o => o.PaymentTransactions)
+             .FirstOrDefaultAsync(o => o.Id == id);
 
-        if (order == null)
-        {
-            throw new NotFoundException($"Order with ID {id} not found");
-        }
+         if (order == null)
+         {
+             throw new NotFoundException($"Order with ID {id} not found");
+         }
 
-        return MapToOrderDto(order);
-    }
+         return MapToOrderDto(order);
+     }
 
-    private static OrderDto MapToOrderDto(Order order)
-    {
-        var orderItems = order.Items.Select(oi => new OrderItemDto(
-            oi.Id,
-            oi.ProductId,
-            oi.ProductName,
-            oi.UnitPrice,
-            oi.Quantity
-        )).ToList();
+     private static OrderDto MapToOrderDto(Order order)
+     {
+         var orderItems = order.Items.Select(oi => new OrderItemDto(
+             oi.Id,
+             oi.ProductId,
+             oi.ProductName,
+             oi.UnitPrice,
+             oi.Quantity
+         )).ToList();
 
-        return new OrderDto(order.Id, order.Status, order.TotalAmount, order.CreatedAt, orderItems);
-    }
+         // Extract customer details with null safety
+         var customerName = order.ApplicationUser != null
+             ? (string.IsNullOrWhiteSpace(order.ApplicationUser.FirstName) 
+                 ? order.ApplicationUser.UserName 
+                 : $"{order.ApplicationUser.FirstName} {order.ApplicationUser.LastName}".Trim())
+             : "Unknown Customer";
+
+         var customerEmail = order.ApplicationUser?.Email ?? "No Email";
+         var customerPhone = order.ApplicationUser?.PhoneNumber ?? "No Phone";
+         var shippingAddress = order.ShippingAddress ?? "No Address";
+
+         // Get the most recent successful payment transaction ID
+         var paymentTransactionId = order.PaymentTransactions
+             .Where(pt => pt.Status == "Succeeded")
+             .OrderByDescending(pt => pt.CreatedAt)
+             .FirstOrDefault()?.TransactionId;
+
+         return new OrderDto(
+             order.Id,
+             order.Status,
+             order.TotalAmount,
+             order.CreatedAt,
+             shippingAddress,
+             customerName,
+             customerEmail,
+             customerPhone,
+             paymentTransactionId,
+             orderItems
+         );
+     }
 }

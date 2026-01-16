@@ -7,5 +7,10 @@ public record OrderDto(
     OrderStatus Status,
     decimal TotalAmount,
     DateTime CreatedAt,
+    string ShippingAddress,
+    string CustomerName,
+    string CustomerEmail,
+    string CustomerPhone,
+    string? PaymentTransactionId,
     List<OrderItemDto> Items
 );
