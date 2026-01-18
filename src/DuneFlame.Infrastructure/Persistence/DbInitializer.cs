@@ -206,6 +206,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Ethiopia Yirgacheffe",
+                Slug = "ethiopia-yirgacheffe",
                 Description = "Highest quality Ethiopian coffee with fruity aromas. This coffee is distinguished by floral and berry notes with a subtle acidity.",
                 Price = 30.00m,
                 DiscountPercentage = 10m,
@@ -220,6 +221,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Colombia Geisha",
+                Slug = "colombia-geisha",
                 Description = "Premium coffee cultivated in the mountainous regions of Panama. Made from authentic Geisha beans, this is among the world's most valuable coffee varieties.",
                 Price = 35.50m,
                 DiscountPercentage = 0m,
@@ -234,6 +236,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Brazil Santos",
+                Slug = "brazil-santos",
                 Description = "Smooth and rich-flavored classic Brazilian coffee. Known for deep chocolate and dry fruit notes.",
                 Price = 22.99m,
                 DiscountPercentage = 15m,
@@ -248,6 +251,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Kenya AA",
+                Slug = "kenya-aa",
                 Description = "High-quality coffee grown in the foothills of Mount Kenya. Distinguished by dark berry notes.",
                 Price = 28.75m,
                 DiscountPercentage = 5m,
@@ -264,6 +268,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Espresso Machine Pro 3000",
+                Slug = "espresso-machine-pro-3000",
                 Description = "State-of-the-art espresso machine for professional-level coffee preparation. Features fully automatic system, steam system, and manual group head.",
                 Price = 699.99m,
                 DiscountPercentage = 15m,
@@ -277,6 +282,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Home Coffee Machine",
+                Slug = "home-coffee-machine",
                 Description = "Perfect for home use, easy to operate coffee machine. Compact design, energy efficient and durable.",
                 Price = 199.99m,
                 DiscountPercentage = 0m,
@@ -290,6 +296,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "French Press",
+                Slug = "french-press",
                 Description = "Classic French-style coffee brewing apparatus. Coffee brewed with this immersion method yields full aroma and taste.",
                 Price = 59.99m,
                 DiscountPercentage = 20m,
@@ -305,6 +312,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Coffee Scale",
+                Slug = "coffee-scale",
                 Description = "Perfect scale for precise coffee measurement. Precision to 0.1 gram, digital display.",
                 Price = 89.99m,
                 DiscountPercentage = 0m,
@@ -318,6 +326,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Coffee Grinder",
+                Slug = "coffee-grinder",
                 Description = "Professional coffee grinder for grinding your own beans. Burr grinder system, 15-step grind adjustments.",
                 Price = 179.99m,
                 DiscountPercentage = 10m,
@@ -331,6 +340,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Coffee Tamper",
+                Slug = "coffee-tamper",
                 Description = "High-quality coffee tamper. Made from stainless steel with ergonomic grip.",
                 Price = 34.99m,
                 DiscountPercentage = 0m,
@@ -346,6 +356,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Ceramic Espresso Cup",
+                Slug = "ceramic-espresso-cup",
                 Description = "Handcrafted ceramic espresso cup set of 6. Heat-retaining ceramic material, antique design.",
                 Price = 55.99m,
                 DiscountPercentage = 18m,
@@ -359,6 +370,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Glass Coffee Cup",
+                Slug = "glass-coffee-cup",
                 Description = "Premium glass coffee cup set of 2. Borosilicate glass, heat-resistant and transparent.",
                 Price = 29.99m,
                 DiscountPercentage = 0m,
@@ -374,6 +386,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Paper Coffee Filter",
+                Slug = "paper-coffee-filter",
                 Description = "Paper filters for home coffee machines. Natural paper, environmentally friendly, 100 count package.",
                 Price = 12.99m,
                 DiscountPercentage = 0m,
@@ -387,6 +400,7 @@ public static class DbInitializer
             new Product
             {
                 Name = "Metal Coffee Filter",
+                Slug = "metal-coffee-filter",
                 Description = "Reusable metal coffee filter. Made from stainless steel, durable and eco-friendly.",
                 Price = 24.99m,
                 DiscountPercentage = 20m,

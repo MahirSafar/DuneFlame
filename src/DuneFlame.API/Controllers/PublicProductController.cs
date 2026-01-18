@@ -38,21 +38,47 @@ public class PublicProductController(IProductService productService) : Controlle
         }
     }
 
-    [HttpGet("{id:guid}")]
-    public async Task<ActionResult<ProductResponse>> GetProductById(Guid id)
-    {
-        try
+        [HttpGet("{idOrSlug}")]
+        public async Task<ActionResult<ProductResponse>> GetProduct(string idOrSlug)
         {
-            var product = await _productService.GetByIdAsync(id);
-            return Ok(product);
+            try
+            {
+                // Try to parse as GUID first
+                if (Guid.TryParse(idOrSlug, out var productId))
+                {
+                    var product = await _productService.GetByIdAsync(productId);
+                    return Ok(product);
+                }
+
+                // Otherwise, treat as slug
+                var productBySlug = await _productService.GetBySlugAsync(idOrSlug);
+                return Ok(productBySlug);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
-        catch (KeyNotFoundException ex)
+
+        [HttpGet("by-slug/{slug}")]
+        public async Task<ActionResult<ProductResponse>> GetProductBySlug(string slug)
         {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
+            try
+            {
+                var product = await _productService.GetBySlugAsync(slug);
+                return Ok(product);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
     }
-}

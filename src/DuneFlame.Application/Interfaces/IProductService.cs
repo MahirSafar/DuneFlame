@@ -10,6 +10,7 @@ public interface IProductService
 
     // Read
     Task<ProductResponse> GetByIdAsync(Guid id);
+    Task<ProductResponse> GetBySlugAsync(string slug);
     Task<PagedResult<ProductResponse>> GetAllAsync(
         int pageNumber = 1,
         int pageSize = 10,

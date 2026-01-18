@@ -5,6 +5,7 @@ namespace DuneFlame.Application.DTOs.Product;
 public record ProductResponse(
     Guid Id,
     string Name,
+    string Slug,
     string Description,
     decimal Price,
     decimal DiscountPercentage,

@@ -1,3 +1,4 @@
+using DuneFlame.Application.Common;
 using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
 using DuneFlame.Application.Interfaces;
@@ -23,9 +24,13 @@ public class ProductService(
 
     public async Task<Guid> CreateAsync(CreateProductRequest request)
     {
+        var baseSlug = SlugGenerator.GenerateSlug(request.Name);
+        var uniqueSlug = await GenerateUniqueSlugAsync(baseSlug);
+
         var product = new Product
         {
             Name = request.Name,
+            Slug = uniqueSlug,
             Description = request.Description,
             Price = request.Price,
             DiscountPercentage = request.DiscountPercentage,
@@ -88,6 +93,44 @@ public class ProductService(
 
         if (product == null)
             throw new NotFoundException($"Product with ID {id} not found.");
+
+        var response = MapToResponse(product);
+
+        // Set cache for 10 minutes
+        var cacheOptions = new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(CacheDurationMinutes)
+        };
+
+        await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(response), cacheOptions);
+
+        return response;
+    }
+
+    public async Task<ProductResponse> GetBySlugAsync(string slug)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+            throw new ArgumentException("Slug cannot be empty.", nameof(slug));
+
+        var cacheKey = $"{ProductCacheKeyPrefix}slug-{slug}";
+
+        // Try to get from cache
+        var cachedData = await _cache.GetStringAsync(cacheKey);
+        if (!string.IsNullOrEmpty(cachedData))
+        {
+            return JsonSerializer.Deserialize<ProductResponse>(cachedData)!;
+        }
+
+        // Fetch from database using the Slug column (indexed query)
+        var product = await _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Origin)
+            .Include(p => p.Images)
+            .Where(p => p.IsActive && p.Slug == slug)
+            .FirstOrDefaultAsync();
+
+        if (product == null)
+            throw new NotFoundException($"Product with slug '{slug}' not found.");
 
         var response = MapToResponse(product);
 
@@ -226,6 +269,14 @@ public class ProductService(
 
         // Step D: Update standard fields
         product.Name = request.Name;
+
+        // Update slug if name changed
+        if (product.Name != request.Name)
+        {
+            var baseSlug = SlugGenerator.GenerateSlug(request.Name);
+            product.Slug = await GenerateUniqueSlugAsync(baseSlug, id);
+        }
+
         product.Description = request.Description;
         product.Price = request.Price;
         product.DiscountPercentage = request.DiscountPercentage;
@@ -242,6 +293,7 @@ public class ProductService(
 
         // Invalidate cache
         await _cache.RemoveAsync($"{ProductCacheKeyPrefix}{id}");
+        await _cache.RemoveAsync($"{ProductCacheKeyPrefix}slug-{product.Slug}");
     }
 
     public async Task DeleteAsync(Guid id)
@@ -266,30 +318,46 @@ public class ProductService(
         await _cache.RemoveAsync($"{ProductCacheKeyPrefix}{id}");
     }
 
-    private static ProductResponse MapToResponse(Product product)
-    {
-        return new ProductResponse(
-            Id: product.Id,
-            Name: product.Name,
-            Description: product.Description,
-            Price: product.Price,
-            DiscountPercentage: product.DiscountPercentage,
-            StockQuantity: product.StockQuantity,
-            IsActive: product.IsActive,
-            CategoryId: product.CategoryId,
-            CategoryName: product.Category?.Name ?? "Unknown",
-            OriginId: product.OriginId,
-            OriginName: product.Origin?.Name,
-            RoastLevel: product.RoastLevel,
-            Weight: product.Weight,
-            FlavorNotes: product.FlavorNotes,
-            CreatedAt: product.CreatedAt,
-            UpdatedAt: product.UpdatedAt,
-            Images: product.Images.Select(i => new ProductImageDto(
-                Id: i.Id,
-                ImageUrl: i.ImageUrl,
-                IsMain: i.IsMain
-            )).ToList()
-        );
+        private static ProductResponse MapToResponse(Product product)
+        {
+            return new ProductResponse(
+                Id: product.Id,
+                Name: product.Name,
+                Slug: product.Slug,
+                Description: product.Description,
+                Price: product.Price,
+                DiscountPercentage: product.DiscountPercentage,
+                StockQuantity: product.StockQuantity,
+                IsActive: product.IsActive,
+                CategoryId: product.CategoryId,
+                CategoryName: product.Category?.Name ?? "Unknown",
+                OriginId: product.OriginId,
+                OriginName: product.Origin?.Name,
+                RoastLevel: product.RoastLevel,
+                Weight: product.Weight,
+                FlavorNotes: product.FlavorNotes,
+                CreatedAt: product.CreatedAt,
+                UpdatedAt: product.UpdatedAt,
+                Images: product.Images.Select(i => new ProductImageDto(
+                    Id: i.Id,
+                    ImageUrl: i.ImageUrl,
+                    IsMain: i.IsMain
+                )).ToList()
+            );
+        }
+
+        private async Task<string> GenerateUniqueSlugAsync(string baseSlug, Guid? excludeProductId = null)
+        {
+            var slug = baseSlug;
+            var counter = 1;
+
+            // Check if slug already exists
+            while (await _context.Products.AnyAsync(p => p.Slug == slug && p.Id != excludeProductId))
+            {
+                slug = $"{baseSlug}-{counter}";
+                counter++;
+            }
+
+            return slug;
+        }
     }
-}

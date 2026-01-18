@@ -111,6 +111,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(p => p.DiscountPercentage)
             .HasPrecision(18, 2);
 
+        // Product Slug Configuration
+        modelBuilder.Entity<Product>()
+            .Property(p => p.Slug)
+            .IsRequired()
+            .HasMaxLength(255);
+
+        modelBuilder.Entity<Product>()
+            .HasIndex(p => p.Slug)
+            .IsUnique();
+
         // Cart - User Relationship (1-to-Many)
         modelBuilder.Entity<Cart>()
             .HasOne(c => c.ApplicationUser)
