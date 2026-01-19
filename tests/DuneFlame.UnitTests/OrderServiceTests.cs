@@ -1,7 +1,9 @@
 ﻿using DuneFlame.Application.DTOs.Order;
+using DuneFlame.Application.DTOs.Basket;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Enums;
+using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using DuneFlame.Infrastructure.Services;
 using FluentAssertions;
@@ -18,28 +20,31 @@ public class OrderServiceTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning)) // <--- BU SƏTRİ ƏLAVƏ ET
+            .ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 
         return new AppDbContext(options);
     }
 
     [Fact]
-    public async Task CreateOrderAsync_WithValidCart_DoesNotCallEarnPointsAsync()
+    public async Task CreateOrderAsync_WithValidBasket_CreatesOrderSuccessfully()
     {
         // Arrange
         var context = GetInMemoryDbContext();
         var rewardServiceMock = new Mock<IRewardService>();
+        var basketServiceMock = new Mock<IBasketService>();
         var loggerMock = new Mock<ILogger<OrderService>>();
 
-        var service = new OrderService(context, rewardServiceMock.Object, loggerMock.Object);
+        var service = new OrderService(context, rewardServiceMock.Object, basketServiceMock.Object, loggerMock.Object);
 
         var userId = Guid.NewGuid();
+        var basketId = userId.ToString();
         var product = new Product
         {
             Id = Guid.NewGuid(),
             Name = "Test Product",
             Price = 100m,
+            DiscountPercentage = 0,
             StockQuantity = 10,
             CategoryId = Guid.NewGuid()
         };
@@ -51,34 +56,51 @@ public class OrderServiceTests
             Slug = "test-category"
         };
 
-        var cart = new Cart
+        var basketDto = new CustomerBasketDto
         {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Items = new List<CartItem>
+            Id = basketId,
+            Items = new List<BasketItemDto>
             {
-                new CartItem
-                {
-                    ProductId = product.Id,
-                    Quantity = 2,
-                    Product = product
-                }
+                new BasketItemDto(
+                    ProductId: product.Id,
+                    ProductName: product.Name,
+                    Slug: "test-product",
+                    Price: product.Price,
+                    Quantity: 2,
+                    ImageUrl: "https://example.com/image.jpg"
+                )
             }
         };
 
         // Setup database
         context.Categories.Add(category);
         context.Products.Add(product);
-        context.Carts.Add(cart);
         await context.SaveChangesAsync();
+
+        // Setup mock
+        basketServiceMock
+            .Setup(b => b.GetBasketAsync(basketId))
+            .ReturnsAsync(basketDto);
+
+        var shippingAddress = new AddressDto(
+            Street: "123 Main St",
+            City: "Test City",
+            State: "TS",
+            PostalCode: "12345",
+            Country: "Test Country"
+        );
+
+        var createOrderRequest = new CreateOrderRequest(
+            BasketId: basketId,
+            ShippingAddress: shippingAddress,
+            PaymentIntentId: "pi_test_1234567890",
+            UsePoints: false
+        );
 
         // Act
         try
         {
-            var result = await service.CreateOrderAsync(userId, new CreateOrderRequest(
-                ShippingAddress: "123 Main St",
-                UsePoints: false
-            ));
+            var result = await service.CreateOrderAsync(userId, createOrderRequest);
 
             // Assert
             rewardServiceMock.Verify(r => r.EarnPointsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>()), 
@@ -96,21 +118,24 @@ public class OrderServiceTests
     }
 
     [Fact]
-    public async Task CreateOrderAsync_WithInsufficientStock_ThrowsInvalidOperationException()
+    public async Task CreateOrderAsync_WithInsufficientStock_ThrowsException()
     {
         // Arrange
         var context = GetInMemoryDbContext();
         var rewardServiceMock = new Mock<IRewardService>();
+        var basketServiceMock = new Mock<IBasketService>();
         var loggerMock = new Mock<ILogger<OrderService>>();
 
-        var service = new OrderService(context, rewardServiceMock.Object, loggerMock.Object);
+        var service = new OrderService(context, rewardServiceMock.Object, basketServiceMock.Object, loggerMock.Object);
 
         var userId = Guid.NewGuid();
+        var basketId = userId.ToString();
         var product = new Product
         {
             Id = Guid.NewGuid(),
             Name = "Test Product",
             Price = 100m,
+            DiscountPercentage = 0,
             StockQuantity = 1,  // Only 1 in stock
             CategoryId = Guid.NewGuid()
         };
@@ -122,59 +147,63 @@ public class OrderServiceTests
             Slug = "test-category"
         };
 
-        var cart = new Cart
+        var basketDto = new CustomerBasketDto
         {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Items = new List<CartItem>
+            Id = basketId,
+            Items = new List<BasketItemDto>
             {
-                new CartItem
-                {
-                    ProductId = product.Id,
-                    Quantity = 5,  // Try to order 5
-                    Product = product
-                }
+                new BasketItemDto(
+                    ProductId: product.Id,
+                    ProductName: product.Name,
+                    Slug: "test-product",
+                    Price: product.Price,
+                    Quantity: 5,  // Try to order 5
+                    ImageUrl: "https://example.com/image.jpg"
+                )
             }
         };
 
         context.Categories.Add(category);
         context.Products.Add(product);
-        context.Carts.Add(cart);
         await context.SaveChangesAsync();
+
+        basketServiceMock
+            .Setup(b => b.GetBasketAsync(basketId))
+            .ReturnsAsync(basketDto);
+
+        var shippingAddress = new AddressDto("123 Main St", "Test City", "TS", "12345", "Test Country");
+        var createOrderRequest = new CreateOrderRequest(basketId, shippingAddress, "pi_test_insufficient_stock", false);
 
         // Act & Assert
         try
         {
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => service.CreateOrderAsync(userId, new CreateOrderRequest(
-                    ShippingAddress: "123 Main St",
-                    UsePoints: false
-                )));
+                () => service.CreateOrderAsync(userId, createOrderRequest));
 
             exception.Message.Should().Contain("Insufficient stock");
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Transactions are not supported"))
         {
-            // If transaction error occurs, verify that the insufficient stock check was done
-            // by checking that the error occurred before the stock was modified
+            // If transaction error occurs, verify stock wasn't modified
             var product_ = await context.Products.FirstOrDefaultAsync(p => p.Id == product.Id);
-            product_!.StockQuantity.Should().Be(1); // Stock should not have changed
+            product_!.StockQuantity.Should().Be(1);
         }
     }
 
     [Fact]
-    public async Task ProcessPaymentSuccessAsync_WithValidTransaction_CallsEarnPointsAsync()
+    public async Task ProcessPaymentSuccessAsync_WithValidPaymentIntent_UpdatesOrderStatus()
     {
         // Arrange
         var context = GetInMemoryDbContext();
         var rewardServiceMock = new Mock<IRewardService>();
+        var basketServiceMock = new Mock<IBasketService>();
         var loggerMock = new Mock<ILogger<OrderService>>();
 
-        var service = new OrderService(context, rewardServiceMock.Object, loggerMock.Object);
+        var service = new OrderService(context, rewardServiceMock.Object, basketServiceMock.Object, loggerMock.Object);
 
         var orderId = Guid.NewGuid();
         var userId = Guid.NewGuid();
-        var transactionId = "stripe_txn_123";
+        var paymentIntentId = "pi_1234567890abcdef01234567";
         var orderTotal = 100m;
         var expectedCashback = 5m; // 5%
 
@@ -187,22 +216,11 @@ public class OrderServiceTests
             Status = OrderStatus.Pending,
             Items = new List<OrderItem>(),
             PointsRedeemed = 0,
-            PointsEarned = 0
-        };
-
-        var paymentTransaction = new PaymentTransaction
-        {
-            Id = Guid.NewGuid(),
-            OrderId = orderId,
-            Order = order,
-            Amount = orderTotal,
-            Status = "Pending",
-            TransactionId = transactionId,
-            Currency = "usd"
+            PointsEarned = 0,
+            PaymentIntentId = paymentIntentId
         };
 
         context.Orders.Add(order);
-        context.PaymentTransactions.Add(paymentTransaction);
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
@@ -214,7 +232,7 @@ public class OrderServiceTests
         // Act
         try
         {
-            await service.ProcessPaymentSuccessAsync(transactionId);
+            await service.ProcessPaymentSuccessAsync(paymentIntentId);
 
             // Assert
             rewardServiceMock.Verify(
@@ -222,15 +240,16 @@ public class OrderServiceTests
                 Times.Once,
                 $"EarnPointsAsync should be called once with userId={userId}, orderId={orderId}, cashback={expectedCashback}");
 
-            var updatedTransaction = await context.PaymentTransactions
-                .AsNoTracking()
-                .FirstOrDefaultAsync(pt => pt.TransactionId == transactionId);
-
-            updatedTransaction!.Status.Should().Be("Succeeded");
-
             var updatedOrder = await context.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.Id == orderId);
             updatedOrder!.Status.Should().Be(OrderStatus.Paid);
             updatedOrder.PointsEarned.Should().Be(expectedCashback);
+
+            // Verify PaymentTransaction was created
+            var paymentTransaction = await context.PaymentTransactions
+                .FirstOrDefaultAsync(pt => pt.TransactionId == paymentIntentId);
+            paymentTransaction.Should().NotBeNull();
+            paymentTransaction!.Status.Should().Be("Succeeded");
+            paymentTransaction.OrderId.Should().Be(orderId);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Transactions are not supported"))
         {
@@ -242,18 +261,19 @@ public class OrderServiceTests
     }
 
     [Fact]
-    public async Task ProcessPaymentSuccessAsync_WithAlreadySucceededTransaction_DoesNotCallEarnPointsAsync()
+    public async Task ProcessPaymentSuccessAsync_WithAlreadyPaidOrder_DoesNotCallEarnPointsAsync()
     {
         // Arrange
         var context = GetInMemoryDbContext();
         var rewardServiceMock = new Mock<IRewardService>();
+        var basketServiceMock = new Mock<IBasketService>();
         var loggerMock = new Mock<ILogger<OrderService>>();
 
-        var service = new OrderService(context, rewardServiceMock.Object, loggerMock.Object);
+        var service = new OrderService(context, rewardServiceMock.Object, basketServiceMock.Object, loggerMock.Object);
 
         var orderId = Guid.NewGuid();
         var userId = Guid.NewGuid();
-        var transactionId = "stripe_txn_123";
+        var paymentIntentId = "pi_already_paid_123";
 
         var order = new Order
         {
@@ -264,34 +284,23 @@ public class OrderServiceTests
             Status = OrderStatus.Paid,  // Already paid
             Items = new List<OrderItem>(),
             PointsRedeemed = 0,
-            PointsEarned = 5m
-        };
-
-        var paymentTransaction = new PaymentTransaction
-        {
-            Id = Guid.NewGuid(),
-            OrderId = orderId,
-            Order = order,
-            Amount = 100m,
-            Status = "Succeeded",  // Already succeeded
-            TransactionId = transactionId,
-            Currency = "usd"
+            PointsEarned = 5m,
+            PaymentIntentId = paymentIntentId
         };
 
         context.Orders.Add(order);
-        context.PaymentTransactions.Add(paymentTransaction);
         await context.SaveChangesAsync();
 
         // Act
         try
         {
-            await service.ProcessPaymentSuccessAsync(transactionId);
+            await service.ProcessPaymentSuccessAsync(paymentIntentId);
 
             // Assert
             rewardServiceMock.Verify(
                 r => r.EarnPointsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>()),
                 Times.Never,
-                "EarnPointsAsync should not be called for already processed payment");
+                "EarnPointsAsync should not be called for already paid order");
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Transactions are not supported"))
         {
@@ -303,28 +312,29 @@ public class OrderServiceTests
     }
 
     [Fact]
-    public async Task ProcessPaymentSuccessAsync_WithNonExistentTransaction_ThrowsKeyNotFoundException()
+    public async Task ProcessPaymentSuccessAsync_WithNonExistentPaymentIntent_ThrowsNotFoundException()
     {
         // Arrange
         var context = GetInMemoryDbContext();
         var rewardServiceMock = new Mock<IRewardService>();
+        var basketServiceMock = new Mock<IBasketService>();
         var loggerMock = new Mock<ILogger<OrderService>>();
 
-        var service = new OrderService(context, rewardServiceMock.Object, loggerMock.Object);
+        var service = new OrderService(context, rewardServiceMock.Object, basketServiceMock.Object, loggerMock.Object);
 
         // Act & Assert
         try
         {
-            await Assert.ThrowsAsync<KeyNotFoundException>(
-                () => service.ProcessPaymentSuccessAsync("non_existent_txn"));
+            await Assert.ThrowsAsync<NotFoundException>(
+                () => service.ProcessPaymentSuccessAsync("pi_nonexistent_payment_intent"));
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Transactions are not supported"))
         {
-            // Expected with InMemory DB - the transaction warning occurs before checking for the payment
-            // Just verify no payment transaction exists
-            var transaction = await context.PaymentTransactions
-                .FirstOrDefaultAsync(pt => pt.TransactionId == "non_existent_txn");
-            transaction.Should().BeNull();
+            // Expected with InMemory DB - the transaction warning occurs before checking for the order
+            // Just verify no order exists with this payment intent
+            var order = await context.Orders
+                .FirstOrDefaultAsync(o => o.PaymentIntentId == "pi_nonexistent_payment_intent");
+            order.Should().BeNull();
         }
     }
 }

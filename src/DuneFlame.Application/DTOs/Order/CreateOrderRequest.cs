@@ -1,6 +1,8 @@
 namespace DuneFlame.Application.DTOs.Order;
 
 public record CreateOrderRequest(
-    string ShippingAddress,
+    string BasketId,
+    AddressDto ShippingAddress,
+    string? PaymentIntentId = null,
     bool UsePoints = false
 );

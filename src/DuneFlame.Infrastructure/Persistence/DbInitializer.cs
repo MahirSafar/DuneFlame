@@ -514,6 +514,7 @@ public static class DbInitializer
             TotalAmount = 0,
             ShippingAddress = "123 Main Street, New York, NY 10001, USA",
             PointsEarned = 45,
+            PaymentIntentId = "pi_1234567890abcdef01234567",
             CreatedAt = DateTime.UtcNow.AddDays(-30)
         };
 
@@ -555,6 +556,7 @@ public static class DbInitializer
             TotalAmount = 0,
             ShippingAddress = "123 Main Street, New York, NY 10001, USA",
             PointsEarned = 35,
+            PaymentIntentId = "pi_abcdefgh12345678ijklmno",
             CreatedAt = DateTime.UtcNow.AddDays(-10)
         };
 
@@ -581,6 +583,7 @@ public static class DbInitializer
             Status = OrderStatus.Cancelled,
             TotalAmount = 0,
             ShippingAddress = "123 Main Street, New York, NY 10001, USA",
+            PaymentIntentId = null, // No payment for cancelled orders
             CreatedAt = DateTime.UtcNow.AddDays(-5)
         };
 
@@ -608,6 +611,7 @@ public static class DbInitializer
             TotalAmount = 0,
             ShippingAddress = "123 Main Street, New York, NY 10001, USA",
             PointsEarned = 18,
+            PaymentIntentId = "pi_xyz9876543210fedcba987654",
             CreatedAt = DateTime.UtcNow.AddDays(-60)
         };
 
@@ -635,6 +639,7 @@ public static class DbInitializer
             TotalAmount = 0,
             ShippingAddress = "123 Main Street, New York, NY 10001, USA",
             PointsEarned = 100,
+            PaymentIntentId = "pi_5678901234567890abcdefgh",
             CreatedAt = DateTime.UtcNow.AddDays(-45)
         };
 

@@ -12,13 +12,19 @@ namespace DuneFlame.API.Controllers;
 [ApiController]
 public class WebhookController(
     IOrderService orderService,
+    IBasketService basketService,
     IOptions<StripeSettings> stripeOptions,
     ILogger<WebhookController> logger) : ControllerBase
 {
     private readonly IOrderService _orderService = orderService;
+    private readonly IBasketService _basketService = basketService;
     private readonly StripeSettings _stripeSettings = stripeOptions.Value;
     private readonly ILogger<WebhookController> _logger = logger;
 
+    /// <summary>
+    /// Stripe webhook endpoint for handling payment events
+    /// POST /api/v1/webhooks/stripe
+    /// </summary>
     [HttpPost("stripe")]
     [AllowAnonymous]
     public async Task<IActionResult> HandleStripeWebhook()
@@ -51,7 +57,24 @@ public class WebhookController(
                 // Call OrderService to process payment success
                 await _orderService.ProcessPaymentSuccessAsync(paymentIntent.Id);
 
+                // Delete basket from Redis if payment succeeded
+                // Extract basketId from metadata if available
+                if (paymentIntent.Metadata != null && paymentIntent.Metadata.TryGetValue("BasketId", out var basketId))
+                {
+                    _logger.LogInformation("Deleting basket {BasketId} after successful payment", basketId);
+                    await _basketService.DeleteBasketAsync(basketId);
+                    _logger.LogInformation("Redis basket {BasketId} deleted successfully", basketId);
+                }
+
                 _logger.LogInformation("Payment success processed for: {PaymentIntentId}", paymentIntent.Id);
+            }
+            else if (stripeEvent.Type == "payment_intent.payment_failed")
+            {
+                var paymentIntent = stripeEvent.Data.Object as PaymentIntent;
+                if (paymentIntent != null)
+                {
+                    _logger.LogWarning("Payment failed for PaymentIntent {PaymentIntentId}", paymentIntent.Id);
+                }
             }
             else
             {

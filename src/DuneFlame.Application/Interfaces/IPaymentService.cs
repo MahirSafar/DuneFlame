@@ -4,6 +4,7 @@ public interface IPaymentService
 {
     Task<PaymentIntentResponse> CreatePaymentIntentAsync(decimal amount, string currency, Guid orderId);
     Task<RefundResponse> RefundPaymentAsync(string transactionId, decimal amount);
+    Task<PaymentIntentResponse> CreateOrUpdatePaymentIntentAsync(string basketId, decimal amount, string currency = "usd");
 }
 
 public record PaymentIntentResponse(

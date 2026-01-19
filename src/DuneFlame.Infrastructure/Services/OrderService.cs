@@ -5,17 +5,21 @@ using DuneFlame.Domain.Enums;
 using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DuneFlame.Infrastructure.Services;
 
 public class OrderService(
     AppDbContext context,
     IRewardService rewardService,
+    IBasketService basketService,
     ILogger<OrderService> logger) : IOrderService
 {
     private readonly AppDbContext _context = context;
     private readonly IRewardService _rewardService = rewardService;
+    private readonly IBasketService _basketService = basketService;
     private readonly ILogger<OrderService> _logger = logger;
 
     public async Task<OrderDto> CreateOrderAsync(Guid userId, CreateOrderRequest request)
@@ -24,61 +28,66 @@ public class OrderService(
 
         try
         {
-            var cart = await _context.Carts
-                .Include(c => c.Items)
-                .ThenInclude(ci => ci.Product)
-                .FirstOrDefaultAsync(c => c.UserId == userId);
+            // Fetch basket from Redis
+            var basket = await _basketService.GetBasketAsync(request.BasketId);
 
-            if (cart == null || cart.Items.Count == 0)
+            if (basket == null || basket.Items.Count == 0)
             {
-                throw new BadRequestException("Cart is empty. Cannot create order.");
+                throw new BadRequestException("Basket is empty. Cannot create order.");
             }
+
+            // Use provided PaymentIntentId or fallback to basket's PaymentIntentId
+            var paymentIntentId = request.PaymentIntentId ?? basket.PaymentIntentId;
 
             var order = new Order
             {
                 UserId = userId,
-                ShippingAddress = request.ShippingAddress,
+                ShippingAddress = request.ShippingAddress.ToString(),
                 Status = OrderStatus.Pending,
                 TotalAmount = 0,
                 PointsRedeemed = 0,
-                PointsEarned = 0
+                PointsEarned = 0,
+                PaymentIntentId = paymentIntentId
             };
 
             decimal totalAmount = 0;
 
-            foreach (var cartItem in cart.Items)
+            // Create order items from basket items
+            // Price MUST be taken from the database, not from the basket (security)
+            foreach (var basketItem in basket.Items)
             {
-                var product = cartItem.Product;
+                var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == basketItem.ProductId);
+
                 if (product == null)
                 {
-                    throw new NotFoundException($"Product with ID {cartItem.ProductId} not found");
+                    throw new NotFoundException($"Product with ID {basketItem.ProductId} not found");
                 }
 
                 // Check stock availability
-                if (product.StockQuantity < cartItem.Quantity)
+                if (product.StockQuantity < basketItem.Quantity)
                 {
                     throw new BadRequestException(
                         $"Insufficient stock for product '{product.Name}'. " +
-                        $"Available: {product.StockQuantity}, Requested: {cartItem.Quantity}");
+                        $"Available: {product.StockQuantity}, Requested: {basketItem.Quantity}");
                 }
 
-                // Calculate selling price: Price * (1 - DiscountPercentage/100)
+                // Calculate selling price from database: Price * (1 - DiscountPercentage/100)
                 var sellingPrice = product.Price * (1 - product.DiscountPercentage / 100);
 
-                // Create OrderItem (snapshot)
+                // Create OrderItem (snapshot) with database price
                 var orderItem = new OrderItem
                 {
                     ProductId = product.Id,
                     ProductName = product.Name,
                     UnitPrice = sellingPrice,
-                    Quantity = cartItem.Quantity
+                    Quantity = basketItem.Quantity
                 };
 
                 order.Items.Add(orderItem);
-                totalAmount += sellingPrice * cartItem.Quantity;
+                totalAmount += sellingPrice * basketItem.Quantity;
 
                 // Decrement product stock
-                product.StockQuantity -= cartItem.Quantity;
+                product.StockQuantity -= basketItem.Quantity;
                 _context.Products.Update(product);
             }
 
@@ -102,24 +111,21 @@ public class OrderService(
                 }
             }
 
-             _context.Orders.Add(order);
+            _context.Orders.Add(order);
 
-             // Clear cart
-             cart.Items.Clear();
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
-             await _context.SaveChangesAsync();
-             await transaction.CommitAsync();
+            _logger.LogInformation("Order created with ID {OrderId} for user {UserId}. Total: {TotalAmount}", 
+                order.Id, userId, order.TotalAmount);
 
-             _logger.LogInformation("Order created with ID {OrderId} for user {UserId}. Total: {TotalAmount}", 
-                 order.Id, userId, order.TotalAmount);
+            // Reload order with related data for mapping
+            var createdOrder = await _context.Orders
+                .Include(o => o.Items)
+                .Include(o => o.ApplicationUser)
+                .FirstOrDefaultAsync(o => o.Id == order.Id);
 
-             // Reload order with related data for mapping
-             var createdOrder = await _context.Orders
-                 .Include(o => o.Items)
-                 .Include(o => o.ApplicationUser)
-                 .FirstOrDefaultAsync(o => o.Id == order.Id);
-
-             return MapToOrderDto(createdOrder!);
+            return MapToOrderDto(createdOrder!);
         }
         catch (Exception ex)
         {
@@ -129,49 +135,55 @@ public class OrderService(
         }
     }
 
-    public async Task ProcessPaymentSuccessAsync(string transactionId)
+    public async Task ProcessPaymentSuccessAsync(string paymentIntentId)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
 
         try
         {
-            var paymentTransaction = await _context.PaymentTransactions
-                .Include(pt => pt.Order)
-                .FirstOrDefaultAsync(pt => pt.TransactionId == transactionId);
+            // Find order by PaymentIntentId (from Stripe webhook)
+            var order = await _context.Orders
+                .FirstOrDefaultAsync(o => o.PaymentIntentId == paymentIntentId);
 
-            if (paymentTransaction == null)
+            if (order == null)
             {
-                _logger.LogWarning("Payment transaction not found: {TransactionId}", transactionId);
-                throw new NotFoundException($"Payment transaction not found: {transactionId}");
+                _logger.LogWarning("Order not found with PaymentIntentId: {PaymentIntentId}", paymentIntentId);
+                throw new NotFoundException($"Order not found with PaymentIntentId: {paymentIntentId}");
             }
 
-            // Idempotency check - if already processed, return
-            if (paymentTransaction.Status == "Succeeded")
+            // Idempotency check - if already paid, return
+            if (order.Status == OrderStatus.Paid)
             {
-                _logger.LogInformation("Payment already processed: {TransactionId}", transactionId);
+                _logger.LogInformation("Order already paid: {OrderId} with PaymentIntentId {PaymentIntentId}", 
+                    order.Id, paymentIntentId);
                 return;
             }
 
-            // Update transaction status
-            paymentTransaction.Status = "Succeeded";
-            _context.PaymentTransactions.Update(paymentTransaction);
+            // Update order status to Paid
+            order.Status = OrderStatus.Paid;
+            _context.Orders.Update(order);
 
-            // Update order status
-            var order = paymentTransaction.Order;
-            if (order != null)
+            // Create PaymentTransaction record for history purposes
+            var paymentTransaction = new PaymentTransaction
             {
-                order.Status = OrderStatus.Paid;
-                _context.Orders.Update(order);
+                OrderId = order.Id,
+                Amount = order.TotalAmount,
+                Currency = "usd",
+                Status = "Succeeded",
+                TransactionId = paymentIntentId,
+                PaymentMethod = "card"
+            };
 
-                // Earn cashback points AFTER payment success
-                var cashback = RewardService.CalculateCashback(order.TotalAmount);
-                order.PointsEarned = cashback;
-                await _rewardService.EarnPointsAsync(order.UserId, order.Id, cashback);
+            _context.PaymentTransactions.Add(paymentTransaction);
 
-                _logger.LogInformation(
-                    "Payment succeeded for Order {OrderId}. Earned {Cashback} points",
-                    order.Id, cashback);
-            }
+            // Earn cashback points AFTER payment success
+            var cashback = RewardService.CalculateCashback(order.TotalAmount);
+            order.PointsEarned = cashback;
+            await _rewardService.EarnPointsAsync(order.UserId, order.Id, cashback);
+
+            _logger.LogInformation(
+                "Payment succeeded for Order {OrderId} with PaymentIntentId {PaymentIntentId}. Earned {Cashback} points",
+                order.Id, paymentIntentId, cashback);
 
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
@@ -179,77 +191,77 @@ public class OrderService(
         catch (Exception ex)
         {
             await transaction.RollbackAsync();
-            _logger.LogError(ex, "Error processing payment success: {TransactionId}", transactionId);
+            _logger.LogError(ex, "Error processing payment success for PaymentIntentId {PaymentIntentId}", paymentIntentId);
             throw;
         }
     }
 
-     public async Task<List<OrderDto>> GetMyOrdersAsync(Guid userId)
-     {
-         var orders = await _context.Orders
-             .Include(o => o.Items)
-             .Include(o => o.ApplicationUser)
-             .Where(o => o.UserId == userId)
-             .OrderByDescending(o => o.CreatedAt)
-             .ToListAsync();
+    public async Task<List<OrderDto>> GetMyOrdersAsync(Guid userId)
+    {
+        var orders = await _context.Orders
+            .Include(o => o.Items)
+            .Include(o => o.ApplicationUser)
+            .Where(o => o.UserId == userId)
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
 
-         return orders.Select(MapToOrderDto).ToList();
-     }
+        return orders.Select(MapToOrderDto).ToList();
+    }
 
-     public async Task<OrderDto> GetOrderByIdAsync(Guid id)
-     {
-         var order = await _context.Orders
-             .Include(o => o.Items)
-             .Include(o => o.ApplicationUser)
-             .Include(o => o.PaymentTransactions)
-             .FirstOrDefaultAsync(o => o.Id == id);
+    public async Task<OrderDto> GetOrderByIdAsync(Guid id)
+    {
+        var order = await _context.Orders
+            .Include(o => o.Items)
+            .Include(o => o.ApplicationUser)
+            .Include(o => o.PaymentTransactions)
+            .FirstOrDefaultAsync(o => o.Id == id);
 
-         if (order == null)
-         {
-             throw new NotFoundException($"Order with ID {id} not found");
-         }
+        if (order == null)
+        {
+            throw new NotFoundException($"Order with ID {id} not found");
+        }
 
-         return MapToOrderDto(order);
-     }
+        return MapToOrderDto(order);
+    }
 
-     private static OrderDto MapToOrderDto(Order order)
-     {
-         var orderItems = order.Items.Select(oi => new OrderItemDto(
-             oi.Id,
-             oi.ProductId,
-             oi.ProductName,
-             oi.UnitPrice,
-             oi.Quantity
-         )).ToList();
+    private static OrderDto MapToOrderDto(Order order)
+    {
+        var orderItems = order.Items.Select(oi => new OrderItemDto(
+            oi.Id,
+            oi.ProductId,
+            oi.ProductName,
+            oi.UnitPrice,
+            oi.Quantity
+        )).ToList();
 
-         // Extract customer details with null safety
-         var customerName = order.ApplicationUser != null
-             ? (string.IsNullOrWhiteSpace(order.ApplicationUser.FirstName) 
-                 ? order.ApplicationUser.UserName 
-                 : $"{order.ApplicationUser.FirstName} {order.ApplicationUser.LastName}".Trim())
-             : "Unknown Customer";
+        // Extract customer details with null safety
+        var customerName = order.ApplicationUser != null
+            ? (string.IsNullOrWhiteSpace(order.ApplicationUser.FirstName) 
+                ? order.ApplicationUser.UserName 
+                : $"{order.ApplicationUser.FirstName} {order.ApplicationUser.LastName}".Trim())
+            : "Unknown Customer";
 
-         var customerEmail = order.ApplicationUser?.Email ?? "No Email";
-         var customerPhone = order.ApplicationUser?.PhoneNumber ?? "No Phone";
-         var shippingAddress = order.ShippingAddress ?? "No Address";
+        var customerEmail = order.ApplicationUser?.Email ?? "No Email";
+        var customerPhone = order.ApplicationUser?.PhoneNumber ?? "No Phone";
+        var shippingAddress = order.ShippingAddress ?? "No Address";
 
-         // Get the most recent successful payment transaction ID
-         var paymentTransactionId = order.PaymentTransactions
-             .Where(pt => pt.Status == "Succeeded")
-             .OrderByDescending(pt => pt.CreatedAt)
-             .FirstOrDefault()?.TransactionId;
+        // Get the most recent successful payment transaction ID
+        var paymentTransactionId = order.PaymentTransactions
+            .Where(pt => pt.Status == "Succeeded")
+            .OrderByDescending(pt => pt.CreatedAt)
+            .FirstOrDefault()?.TransactionId;
 
-         return new OrderDto(
-             order.Id,
-             order.Status,
-             order.TotalAmount,
-             order.CreatedAt,
-             shippingAddress,
-             customerName,
-             customerEmail,
-             customerPhone,
-             paymentTransactionId,
-             orderItems
-         );
-     }
+        return new OrderDto(
+            order.Id,
+            order.Status,
+            order.TotalAmount,
+            order.CreatedAt,
+            shippingAddress,
+            customerName,
+            customerEmail,
+            customerPhone,
+            paymentTransactionId,
+            orderItems
+        );
+    }
 }

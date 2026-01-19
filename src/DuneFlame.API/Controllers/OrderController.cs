@@ -27,6 +27,11 @@ public class OrderController(
         return userId;
     }
 
+    /// <summary>
+    /// Create a new order from basket with shipping address and optional payment intent ID
+    /// POST /api/v1/orders
+    /// Body: { "basketId": "user-id", "paymentIntentId": "pi_...", "shippingAddress": { "street": "...", "city": "...", ... } }
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
     {
@@ -56,6 +61,10 @@ public class OrderController(
         }
     }
 
+    /// <summary>
+    /// Get all orders for the current user
+    /// GET /api/v1/orders
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetMyOrders()
     {
@@ -71,6 +80,10 @@ public class OrderController(
         }
     }
 
+    /// <summary>
+    /// Get a specific order by ID
+    /// GET /api/v1/orders/{id}
+    /// </summary>
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetOrderById(Guid id)
     {

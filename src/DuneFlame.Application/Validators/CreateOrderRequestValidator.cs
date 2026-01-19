@@ -7,12 +7,56 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
 {
     public CreateOrderRequestValidator()
     {
-        RuleFor(x => x.ShippingAddress)
+        RuleFor(x => x.BasketId)
             .NotEmpty()
-            .WithMessage("Shipping address is required.")
-            .MinimumLength(5)
-            .WithMessage("Shipping address must be at least 5 characters long.")
-            .MaximumLength(500)
-            .WithMessage("Shipping address must not exceed 500 characters.");
+            .WithMessage("Basket ID is required.");
+
+        RuleFor(x => x.ShippingAddress)
+            .NotNull()
+            .WithMessage("Shipping address is required.");
+
+        When(x => x.ShippingAddress != null, () =>
+        {
+            RuleFor(x => x.ShippingAddress.Street)
+                .NotEmpty()
+                .WithMessage("Street address is required.")
+                .MinimumLength(5)
+                .WithMessage("Street address must be at least 5 characters long.")
+                .MaximumLength(200)
+                .WithMessage("Street address must not exceed 200 characters.");
+
+            RuleFor(x => x.ShippingAddress.City)
+                .NotEmpty()
+                .WithMessage("City is required.")
+                .MinimumLength(2)
+                .WithMessage("City must be at least 2 characters long.")
+                .MaximumLength(50)
+                .WithMessage("City must not exceed 50 characters.");
+
+            RuleFor(x => x.ShippingAddress.State)
+                .NotEmpty()
+                .WithMessage("State/Province is required.")
+                .MinimumLength(2)
+                .WithMessage("State must be at least 2 characters long.")
+                .MaximumLength(50)
+                .WithMessage("State must not exceed 50 characters.");
+
+            RuleFor(x => x.ShippingAddress.PostalCode)
+                .NotEmpty()
+                .WithMessage("Postal code is required.")
+                .MinimumLength(3)
+                .WithMessage("Postal code must be at least 3 characters long.")
+                .MaximumLength(20)
+                .WithMessage("Postal code must not exceed 20 characters.");
+
+            RuleFor(x => x.ShippingAddress.Country)
+                .NotEmpty()
+                .WithMessage("Country is required.")
+                .MinimumLength(2)
+                .WithMessage("Country must be at least 2 characters long.")
+                .MaximumLength(50)
+                .WithMessage("Country must not exceed 50 characters.");
+        });
     }
 }
+
