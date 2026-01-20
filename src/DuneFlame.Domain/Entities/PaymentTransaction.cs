@@ -11,4 +11,10 @@ public class PaymentTransaction : BaseEntity
     public string Currency { get; set; } = "usd";
     public string Status { get; set; } = "Pending";
     public string PaymentMethod { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Refund ID from payment gateway (Stripe charge ID for refunds).
+    /// Used for idempotency: prevents duplicate refund processing.
+    /// </summary>
+    public string? RefundId { get; set; }
 }

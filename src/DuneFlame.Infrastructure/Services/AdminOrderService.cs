@@ -6,6 +6,7 @@ using DuneFlame.Domain.Enums;
 using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace DuneFlame.Infrastructure.Services;
@@ -14,11 +15,15 @@ public class AdminOrderService(
     AppDbContext context,
     IPaymentService paymentService,
     IRewardService rewardService,
+    IEmailService emailService,
+    IServiceProvider serviceProvider,
     ILogger<AdminOrderService> logger) : IAdminOrderService
 {
     private readonly AppDbContext _context = context;
     private readonly IPaymentService _paymentService = paymentService;
     private readonly IRewardService _rewardService = rewardService;
+    private readonly IEmailService _emailService = emailService;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly ILogger<AdminOrderService> _logger = logger;
 
     /// <summary>
@@ -65,6 +70,7 @@ public class AdminOrderService(
                  .Include(o => o.Items)
                  .Include(o => o.ApplicationUser)
                  .Include(o => o.PaymentTransactions)
+                 .AsSplitQuery()
                  .AsQueryable();
 
              // Filtering by status
@@ -116,7 +122,9 @@ public class AdminOrderService(
     {
         try
         {
-            var order = await _context.Orders.FindAsync(orderId);
+            var order = await _context.Orders
+                .Include(o => o.ApplicationUser)
+                .FirstOrDefaultAsync(o => o.Id == orderId);
             if (order == null)
             {
                 throw new NotFoundException($"Order not found: {orderId}");
@@ -130,6 +138,32 @@ public class AdminOrderService(
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Order {OrderId} status updated to {Status}", orderId, status);
+
+            // Send email based on status change
+            var userEmail = order.ApplicationUser?.Email;
+            if (!string.IsNullOrEmpty(userEmail))
+            {
+                try
+                {
+                    switch (status)
+                    {
+                        case OrderStatus.Shipped:
+                            await _emailService.SendOrderShippedAsync(userEmail, orderId);
+                            _logger.LogInformation("Shipped email sent for Order {OrderId}", orderId);
+                            break;
+                        case OrderStatus.Delivered:
+                            await _emailService.SendOrderDeliveredAsync(userEmail, orderId);
+                            _logger.LogInformation("Delivered email sent for Order {OrderId}", orderId);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send status update email for Order {OrderId} with status {Status}",
+                        orderId, status);
+                    // Non-critical failure - don't throw
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -138,16 +172,26 @@ public class AdminOrderService(
         }
     }
 
+    /// <summary>
+    /// 3-PHASE ORDER CANCELLATION with Shadow Updates, Idempotency, and Race Condition Guards.
+    /// 
+    /// PHASE 1 (ATOMIC STATUS): Update order status to Cancelled (optimistic concurrency via RowVersion)
+    /// PHASE 2 (SHADOW UPDATES): Native SQL for refunds, inventory, reward adjustments (atomic, no ORM conflicts)
+    /// PHASE 3 (ASYNC EMAIL): Send cancellation email via fresh service scope (retryable, failure-resilient)
+    /// </summary>
     public async Task CancelOrderAsync(Guid orderId)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
 
         try
         {
-            // 1. Get Order with related data
+            _logger.LogInformation("CancelOrderAsync PHASE 1: Atomic status update for Order {OrderId}", orderId);
+
+            // PHASE 1: Atomic Status Update with Optimistic Concurrency Check (RowVersion)
             var order = await _context.Orders
                 .Include(o => o.Items)
                 .Include(o => o.PaymentTransactions)
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null)
@@ -161,133 +205,162 @@ public class AdminOrderService(
                 throw new BadRequestException("Cannot cancel a delivered order.");
             }
 
-            _logger.LogInformation("Starting cancellation for Order {OrderId}", orderId);
-
-            // 2. Handle Stripe refund if order is paid
-            if (order.Status == OrderStatus.Paid)
+            // Idempotency check
+            if (order.Status == OrderStatus.Cancelled)
             {
-                var paymentTransaction = order.PaymentTransactions.FirstOrDefault(pt => pt.Status == "Succeeded");
-                if (paymentTransaction != null)
+                _logger.LogInformation("Order {OrderId} already cancelled (idempotent). Skipping.", orderId);
+                await transaction.CommitAsync();
+                return;
+            }
+
+            // CRITICAL: Capture original status BEFORE modifying the order object
+            // This is needed for Phase 2A refund logic because we set Status = Cancelled here,
+            // which would cause the refund condition check to always fail if using order.Status
+            var originalStatus = order.Status;
+
+            // Update order status atomically
+            order.Status = OrderStatus.Cancelled;
+            _context.Orders.Update(order);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("CancelOrderAsync PHASE 2: Shadow updates via native SQL for Order {OrderId}", orderId);
+
+            // CRITICAL: Clear ALL tracked entities (Order, Items, Transactions) to prevent "Ghost Entity" conflicts in Phase 2
+            // This ensures that OrderItem and PaymentTransaction entities don't cause concurrency exceptions
+            // when SaveChangesAsync is called during reward refund processing.
+            _context.ChangeTracker.Clear();
+            _logger.LogInformation("ChangeTracker cleared after Phase 1 commit to enable clean Phase 2 operations for Order {OrderId}", orderId);
+
+            // PHASE 2: Shadow Updates - Native SQL (atomic, avoids ORM tracking conflicts)
+            // Set short command timeout to prevent hanging on rare DB locks
+            _context.Database.SetCommandTimeout(TimeSpan.FromSeconds(5));
+
+            try
+            {
+                // 2A: Handle Payment Refund via native SQL
+                // Check original status because order.Status is already 'Cancelled' at this point
+                // Support refunds for both Paid and Shipped orders
+                if (originalStatus == OrderStatus.Paid || originalStatus == OrderStatus.Shipped)
+                {
+                    var paymentTransaction = order.PaymentTransactions.FirstOrDefault(pt => pt.Status == "Succeeded");
+                    if (paymentTransaction != null && string.IsNullOrEmpty(paymentTransaction.RefundId))
+                    {
+                        try
+                        {
+                            var refundResponse = await _paymentService.RefundPaymentAsync(
+                                paymentTransaction.TransactionId, 
+                                paymentTransaction.Amount);
+
+                            // Update RefundId via native SQL to prevent ORM conflicts
+                            // Extract the RefundId from the response object
+                            await _context.Database.ExecuteSqlInterpolatedAsync(
+                                $@"UPDATE ""PaymentTransactions"" 
+                                   SET ""RefundId"" = {refundResponse.RefundId}, ""Status"" = 'Refunded' 
+                                   WHERE ""Id"" = {paymentTransaction.Id}");
+
+                            _logger.LogInformation("Payment refunded for Order {OrderId}: {Amount} (RefundId: {RefundId})", 
+                                orderId, paymentTransaction.Amount, refundResponse.RefundId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to refund payment for Order {OrderId}", orderId);
+                            throw;
+                        }
+                    }
+                }
+
+                // 2B: Restock Inventory via native SQL
+                foreach (var item in order.Items)
                 {
                     try
                     {
-                        await _paymentService.RefundPaymentAsync(paymentTransaction.TransactionId, paymentTransaction.Amount);
-                        paymentTransaction.Status = "Refunded";
-                        // NOTE: Do NOT call Update() - entity is already tracked via Include
-                        _logger.LogInformation("Payment refunded for Order {OrderId}: {Amount}", orderId, paymentTransaction.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to refund payment for Order {OrderId}", orderId);
-                        throw;
-                    }
+                        await _context.Database.ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE ""Products"" 
+                               SET ""StockQuantity"" = ""StockQuantity"" + {item.Quantity} 
+                               WHERE ""Id"" = {item.ProductId}");
+
+                    _logger.LogInformation("Restocked {Quantity} units of Product {ProductId}", 
+                        item.Quantity, item.ProductId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to restock inventory for Product {ProductId}", item.ProductId);
+                    throw;
                 }
             }
 
-            // 3. Reverse reward points
+            // 2C: Reverse Reward Points via Unit of Work Pattern
             if (order.PointsEarned > 0 || order.PointsRedeemed > 0)
             {
                 try
                 {
-                    // Pass the order object directly (Unit of Work pattern)
-                    // RefundPointsAsync modifies entities but does NOT save
-                    await _rewardService.RefundPointsAsync(order);
-                    _logger.LogInformation("Reward points refunded for Order {OrderId}", orderId);
+                    // Pass only primitives to prevent EF Core from tracking the stale Order entity
+                    await _rewardService.RefundPointsAsync(order.UserId, order.Id, order.PointsEarned, order.PointsRedeemed);
+                    _logger.LogInformation("Reward points reversed for Order {OrderId}", orderId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to refund reward points for Order {OrderId}", orderId);
+                    _logger.LogError(ex, "Failed to reverse reward points for Order {OrderId}", orderId);
                     throw;
                 }
             }
 
-            // 4. Restock inventory
-            foreach (var item in order.Items)
-            {
-                var product = await _context.Products.FindAsync(item.ProductId);
-                if (product != null)
-                {
-                    product.StockQuantity += item.Quantity;
-                    // NOTE: Do NOT call Update() - entity is already tracked via FindAsync
-                    _logger.LogInformation("Restocked {Quantity} units of Product {ProductId}", item.Quantity, item.ProductId);
-                }
+            // Save all shadow updates together
+            await _context.SaveChangesAsync();
             }
-
-            // 5. Update order status
-            order.Status = OrderStatus.Cancelled;
-            // NOTE: Do NOT call Update() - entity is already tracked via initial Include
-            // Single SaveChangesAsync will persist all accumulated changes
-
-            // Attempt to save with concurrency conflict recovery
-            try
+            finally
             {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException ex)
-            {
-                // Concurrency conflict detected
-                // Since we just processed an external Stripe refund, we MUST persist the cancellation
-                // Reload conflicting entities and re-apply our changes
-                _logger.LogWarning(ex, "Concurrency conflict detected while cancelling Order {OrderId}, recovering...", orderId);
-
-                // Iterate through entities that failed due to concurrency
-                foreach (var entry in ex.Entries)
-                {
-                    // Reload the latest values from database
-                    await entry.ReloadAsync();
-
-                    // Re-apply our changes based on entity type
-                    switch (entry.Entity)
-                    {
-                        case Order o:
-                            // Force cancellation state
-                            o.Status = OrderStatus.Cancelled;
-                            _logger.LogInformation("Re-applied Order cancellation for {OrderId}", orderId);
-                            break;
-
-                        case Product p:
-                            // Re-calculate: we added stock during restock operation
-                            // Find the original quantity we were adding back
-                            var orderItem = order.Items.FirstOrDefault(oi => oi.ProductId == p.Id);
-                            if (orderItem != null)
-                            {
-                                p.StockQuantity += orderItem.Quantity;
-                                _logger.LogInformation("Re-applied inventory restock for Product {ProductId}: +{Quantity}", p.Id, orderItem.Quantity);
-                            }
-                            break;
-
-                        case PaymentTransaction pt:
-                            // Force refund state (critical - payment was already processed)
-                            pt.Status = "Refunded";
-                            _logger.LogInformation("Re-applied payment refund status for Transaction {TransactionId}", pt.TransactionId);
-                            break;
-
-                        case RewardWallet w:
-                            // Re-calculate: wallet balance was modified during points reversal
-                            // Subtract earned points and add redeemed points (same logic as RefundPointsAsync)
-                            w.Balance -= order.PointsEarned;
-                            w.Balance += order.PointsRedeemed;
-                            _logger.LogInformation("Re-applied reward points reversal for Order {OrderId}", orderId);
-                            break;
-                    }
-                }
-
-                // Retry the save after recovering
-                try
-                {
-                    await _context.SaveChangesAsync();
-                    _logger.LogInformation("Successfully recovered and saved after concurrency conflict for Order {OrderId}", orderId);
-                }
-                catch (Exception retryEx)
-                {
-                    _logger.LogError(retryEx, "Failed to save after concurrency recovery for Order {OrderId}", orderId);
-                    throw;
-                }
+                // Reset command timeout to default
+                _context.Database.SetCommandTimeout(null);
             }
 
             await transaction.CommitAsync();
 
-            _logger.LogInformation("Order {OrderId} successfully cancelled", orderId);
+            _logger.LogInformation("CancelOrderAsync PHASE 3: Async email notification for Order {OrderId}", orderId);
+
+            // PHASE 3: Email Notification (Async, Fire-and-Forget, Failure-Resilient)
+            try
+            {
+                // Use fresh service scope to avoid DbContext lifetime issues
+                // Send email asynchronously without blocking the main operation
+                var userEmail = order.ApplicationUser?.Email ?? string.Empty;
+                if (!string.IsNullOrEmpty(userEmail))
+                {
+                    // Fire-and-forget: Queue email in background without awaiting
+                    // This ensures cancellation response is not delayed by email service
+                    try
+                    {
+                        using var scope = _serviceProvider.CreateScope();
+                        var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+
+                        // Async send without await (fire-and-forget)
+                        #pragma warning disable CS4014 // Because this call is not awaited, execution continues
+                        emailService.SendOrderCancelledAsync(userEmail, order.Id, order.TotalAmount).ContinueWith(task =>
+                        {
+                            if (task.IsFaulted)
+                            {
+                                _logger.LogWarning(task.Exception, "Failed to send cancellation email for Order {OrderId}", orderId);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("Cancellation email sent successfully for Order {OrderId}", orderId);
+                            }
+                        });
+                        #pragma warning restore CS4014
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error initiating email notification for Order {OrderId}", orderId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Phase 3 failure is non-critical
+                _logger.LogWarning(ex, "Error initiating email notification for Order {OrderId}. Order cancellation succeeded.", orderId);
+            }
+
+            _logger.LogInformation("Order {OrderId} successfully cancelled (3-Phase complete)", orderId);
         }
         catch (Exception ex)
         {

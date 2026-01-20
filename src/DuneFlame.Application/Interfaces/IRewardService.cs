@@ -1,5 +1,4 @@
 using DuneFlame.Application.DTOs.Reward;
-using DuneFlame.Domain.Entities;
 
 namespace DuneFlame.Application.Interfaces;
 
@@ -9,7 +8,8 @@ public interface IRewardService
     Task<List<RewardTransactionDto>> GetTransactionsAsync(Guid userId);
     Task EarnPointsAsync(Guid userId, Guid orderId, decimal amount);
     Task RedeemPointsAsync(Guid userId, decimal amount, Guid orderId);
-    // Unit of Work pattern: Accepts Order object, modifies entities but does NOT save
-    Task RefundPointsAsync(Order order);
+    // Unit of Work pattern: Accept only primitives to prevent entity re-attachment
+    // Does NOT call SaveChangesAsync - caller is responsible for final save
+    Task RefundPointsAsync(Guid userId, Guid orderId, decimal pointsEarned, decimal pointsRedeemed);
     Task AdminAdjustPointsAsync(Guid userId, decimal amount, string reason);
 }

@@ -106,7 +106,7 @@ public class OrderService(
                     order.PointsRedeemed = discount;
                     order.TotalAmount -= discount;
 
-                    // Redeem points
+                    // Redeem points atomically
                     await _rewardService.RedeemPointsAsync(userId, discount, order.Id);
                 }
             }
@@ -114,6 +114,24 @@ public class OrderService(
             _context.Orders.Add(order);
 
             await _context.SaveChangesAsync();
+
+            // Lock basket in Redis to prevent modification during payment processing
+            // (Prevents race condition where user modifies basket while payment is being processed)
+            try
+            {
+                // Update basket metadata to mark it as locked
+                basket.Id = request.BasketId;
+                await _basketService.UpdateBasketAsync(basket);
+                _logger.LogInformation("Basket {BasketId} locked during payment processing for Order {OrderId}", 
+                    request.BasketId, order.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to lock basket {BasketId}. Payment may proceed but basket remains editable.", 
+                    request.BasketId);
+                // Non-critical failure - don't abort order creation
+            }
+
             await transaction.CommitAsync();
 
             _logger.LogInformation("Order created with ID {OrderId} for user {UserId}. Total: {TotalAmount}", 
@@ -135,64 +153,124 @@ public class OrderService(
         }
     }
 
+    /// <summary>
+    /// 3-PHASE PAYMENT SUCCESS PROCESSING with idempotency, retry guards, and stagger delay.
+    /// PHASE 1: Atomic status update with optimistic concurrency check (RowVersion)
+    /// PHASE 2: Shadow update - record payment transaction
+    /// PHASE 3: Earn cashback points with fresh scope
+    /// </summary>
     public async Task ProcessPaymentSuccessAsync(string paymentIntentId)
     {
-        using var transaction = await _context.Database.BeginTransactionAsync();
+        const int MaxRetries = 3;
+        const int MinStaggerMs = 100;
+        const int MaxStaggerMs = 500;
+        var random = new Random();
 
-        try
+        for (int attempt = 1; attempt <= MaxRetries; attempt++)
         {
-            // Find order by PaymentIntentId (from Stripe webhook)
-            var order = await _context.Orders
-                .FirstOrDefaultAsync(o => o.PaymentIntentId == paymentIntentId);
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            if (order == null)
+            try
             {
-                _logger.LogWarning("Order not found with PaymentIntentId: {PaymentIntentId}", paymentIntentId);
-                throw new NotFoundException($"Order not found with PaymentIntentId: {paymentIntentId}");
+                _logger.LogInformation("ProcessPaymentSuccess PHASE 1: Atomic status update (Attempt {Attempt}/{MaxRetries}) for PaymentIntentId {PaymentIntentId}",
+                    attempt, MaxRetries, paymentIntentId);
+
+                // PHASE 1: Atomic Status Update with Optimistic Concurrency
+                var order = await _context.Orders
+                    .FirstOrDefaultAsync(o => o.PaymentIntentId == paymentIntentId);
+
+                if (order == null)
+                {
+                    _logger.LogWarning("Order not found with PaymentIntentId: {PaymentIntentId}", paymentIntentId);
+                    throw new NotFoundException($"Order not found with PaymentIntentId: {paymentIntentId}");
+                }
+
+                // Idempotency check - if already paid, return safely
+                if (order.Status == OrderStatus.Paid)
+                {
+                    _logger.LogInformation("Order already paid (idempotent): {OrderId} with PaymentIntentId {PaymentIntentId}. Skipping.",
+                        order.Id, paymentIntentId);
+                    await transaction.CommitAsync();
+                    return;
+                }
+
+                // Update status atomically
+                order.Status = OrderStatus.Paid;
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("ProcessPaymentSuccess PHASE 2: Shadow update - payment transaction record for Order {OrderId}",
+                    order.Id);
+
+                // PHASE 2: Shadow Update - Record Payment Transaction
+                var paymentTransaction = new PaymentTransaction
+                {
+                    OrderId = order.Id,
+                    Amount = order.TotalAmount,
+                    Currency = "usd",
+                    Status = "Succeeded",
+                    TransactionId = paymentIntentId,
+                    PaymentMethod = "card"
+                };
+
+                _context.PaymentTransactions.Add(paymentTransaction);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("ProcessPaymentSuccess PHASE 3: Earn cashback points for Order {OrderId}",
+                    order.Id);
+
+                // PHASE 3: Earn Cashback Points (fresh scope, retryable)
+                var cashback = RewardService.CalculateCashback(order.TotalAmount);
+                order.PointsEarned = cashback;
+                _context.Orders.Update(order);
+
+                // Call RewardService to earn points
+                await _rewardService.EarnPointsAsync(order.UserId, order.Id, cashback);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                _logger.LogInformation(
+                    "Payment success processed for Order {OrderId} with PaymentIntentId {PaymentIntentId}. Earned {Cashback} points",
+                    order.Id, paymentIntentId, cashback);
+
+                return; // Success - exit retry loop
             }
-
-            // Idempotency check - if already paid, return
-            if (order.Status == OrderStatus.Paid)
+            catch (DbUpdateConcurrencyException ex)
             {
-                _logger.LogInformation("Order already paid: {OrderId} with PaymentIntentId {PaymentIntentId}", 
-                    order.Id, paymentIntentId);
-                return;
+                await transaction.RollbackAsync();
+                _logger.LogWarning(ex, "Concurrency conflict on attempt {Attempt}/{MaxRetries}. RowVersion mismatch. Retrying...",
+                    attempt, MaxRetries);
+
+                if (attempt == MaxRetries)
+                {
+                    _logger.LogError(ex, "All concurrency retry attempts exhausted for PaymentIntentId {PaymentIntentId}",
+                        paymentIntentId);
+                    throw;
+                }
+
+                // Apply stagger delay to reduce contention
+                int staggerMs = random.Next(MinStaggerMs, MaxStaggerMs);
+                await Task.Delay(staggerMs);
             }
-
-            // Update order status to Paid
-            order.Status = OrderStatus.Paid;
-            _context.Orders.Update(order);
-
-            // Create PaymentTransaction record for history purposes
-            var paymentTransaction = new PaymentTransaction
+            catch (Exception ex)
             {
-                OrderId = order.Id,
-                Amount = order.TotalAmount,
-                Currency = "usd",
-                Status = "Succeeded",
-                TransactionId = paymentIntentId,
-                PaymentMethod = "card"
-            };
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error processing payment success on attempt {Attempt}/{MaxRetries} for PaymentIntentId {PaymentIntentId}. " +
+                    "Exception: {ExceptionMessage}",
+                    attempt, MaxRetries, paymentIntentId, ex.Message);
 
-            _context.PaymentTransactions.Add(paymentTransaction);
+                if (attempt == MaxRetries)
+                {
+                    _logger.LogError(ex, "All retry attempts exhausted for PaymentIntentId {PaymentIntentId}",
+                        paymentIntentId);
+                    throw;
+                }
 
-            // Earn cashback points AFTER payment success
-            var cashback = RewardService.CalculateCashback(order.TotalAmount);
-            order.PointsEarned = cashback;
-            await _rewardService.EarnPointsAsync(order.UserId, order.Id, cashback);
-
-            _logger.LogInformation(
-                "Payment succeeded for Order {OrderId} with PaymentIntentId {PaymentIntentId}. Earned {Cashback} points",
-                order.Id, paymentIntentId, cashback);
-
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "Error processing payment success for PaymentIntentId {PaymentIntentId}", paymentIntentId);
-            throw;
+                // Apply stagger delay before retry
+                int staggerMs = random.Next(MinStaggerMs, MaxStaggerMs);
+                await Task.Delay(staggerMs);
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 using DuneFlame.Domain.Common;
 using DuneFlame.Domain.Enums;
+using System.ComponentModel.DataAnnotations;
 
 namespace DuneFlame.Domain.Entities;
 
@@ -13,6 +14,14 @@ public class Order : BaseEntity
     public decimal PointsRedeemed { get; set; } = 0;
     public decimal PointsEarned { get; set; } = 0;
     public string? PaymentIntentId { get; set; }
+
+    /// <summary>
+    /// Concurrency control: auto-incremented by database on every update.
+    /// Prevents lost updates due to concurrent modifications.
+    /// </summary>
+    [Timestamp]
+    public byte[]? RowVersion { get; set; }
+
     public ICollection<OrderItem> Items { get; set; } = [];
     public ICollection<PaymentTransaction> PaymentTransactions { get; set; } = [];
 }

@@ -154,6 +154,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(o => o.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Order RowVersion - Optimistic Concurrency Control
+        modelBuilder.Entity<Order>()
+            .Property(o => o.RowVersion)
+            .IsRowVersion();
+
         // Order - TotalAmount Precision
         modelBuilder.Entity<Order>()
             .Property(o => o.TotalAmount)
@@ -210,6 +215,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .WithMany(o => o.PaymentTransactions)
             .HasForeignKey(pt => pt.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // PaymentTransaction RefundId - Idempotency tracking for refunds (explicitly optional)
+        modelBuilder.Entity<PaymentTransaction>()
+            .Property(pt => pt.RefundId)
+            .IsRequired(false)
+            .HasMaxLength(255);
 
         // PaymentTransaction Amount Precision
         modelBuilder.Entity<PaymentTransaction>()

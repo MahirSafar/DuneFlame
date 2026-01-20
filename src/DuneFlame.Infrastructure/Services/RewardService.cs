@@ -38,6 +38,7 @@ public class RewardService(AppDbContext context) : IRewardService
     public async Task<List<RewardTransactionDto>> GetTransactionsAsync(Guid userId)
     {
         var transactions = await _context.RewardTransactions
+            .AsNoTracking()
             .Where(rt => rt.RewardWallet!.UserId == userId)
             .OrderByDescending(rt => rt.CreatedAt)
             .ToListAsync();
@@ -51,10 +52,34 @@ public class RewardService(AppDbContext context) : IRewardService
         )).ToList();
     }
 
+    /// <summary>
+    /// Earn points for a completed order with idempotency check.
+    /// PHASE 1 (ATOMIC): Check idempotency, fetch wallet
+    /// PHASE 2 (SHADOW): Apply balance update via atomic SQL
+    /// PHASE 3 (COMMIT): Record transaction entry
+    /// </summary>
     public async Task EarnPointsAsync(Guid userId, Guid orderId, decimal amount)
     {
+        // PHASE 1: Idempotency Check (prevent duplicate earnings)
+        var existingTransaction = await _context.RewardTransactions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.RelatedOrderId == orderId && t.Type == RewardType.Earned);
+
+        if (existingTransaction != null)
+        {
+            // Already processed, skip silently (idempotent)
+            return;
+        }
+
+        // Get wallet (fetch fresh to avoid stale data)
         var wallet = await GetOrCreateWalletAsync(userId);
 
+        // PHASE 2: Atomic Balance Update (shadow update via native SQL)
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $@"UPDATE ""RewardWallets"" SET ""Balance"" = ""Balance"" + {amount} 
+               WHERE ""Id"" = {wallet.Id}");
+
+        // PHASE 3: Record transaction entry
         var transaction = new RewardTransaction
         {
             WalletId = wallet.Id,
@@ -64,12 +89,13 @@ public class RewardService(AppDbContext context) : IRewardService
             RelatedOrderId = orderId
         };
 
-        wallet.Transactions.Add(transaction);
-        wallet.Balance += amount;
-
+        _context.RewardTransactions.Add(transaction);
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Redeem points for an order with balance validation.
+    /// </summary>
     public async Task RedeemPointsAsync(Guid userId, decimal amount, Guid orderId)
     {
         var wallet = await _context.RewardWallets
@@ -96,64 +122,84 @@ public class RewardService(AppDbContext context) : IRewardService
             RelatedOrderId = orderId
         };
 
-        wallet.Transactions.Add(transaction);
-        wallet.Balance -= amount;
+            wallet.Transactions.Add(transaction);
+            wallet.Balance -= amount;
 
-        await _context.SaveChangesAsync();
-    }
-
-    public async Task RefundPointsAsync(Order order)
-    {
-        // NOTE: This method participates in Unit of Work pattern.
-        // It modifies entities but does NOT call SaveChangesAsync().
-        // The caller (AdminOrderService) handles the final save.
-        
-        if (order == null)
-        {
-            throw new ArgumentNullException(nameof(order), "Order cannot be null");
+            await _context.SaveChangesAsync();
         }
 
-        // Step 1: Get or create user's reward wallet
-        var wallet = await GetOrCreateWalletAsync(order.UserId);
+    /// <summary>
+    /// Refund points due to order cancellation.
+    /// Part of Unit of Work pattern - does NOT call SaveChangesAsync.
+    /// CRITICAL FIX: Uses Native SQL for balance update to avoid MVCC concurrency conflicts.
+    /// - Phase 1: Fetch wallet (read-only, no tracking)
+    /// - Phase 2: Update balance via native SQL (bypasses EF Core concurrency checks)
+    /// - Phase 3: Record transactions via EF Core INSERTS (no concurrency risk on new rows)
+    /// </summary>
+    public async Task RefundPointsAsync(Guid userId, Guid orderId, decimal pointsEarned, decimal pointsRedeemed)
+    {
+        // PHASE 1: Get or Create Wallet (read-only, no tracking)
+        var wallet = await _context.RewardWallets
+            .AsNoTracking()
+            .FirstOrDefaultAsync(w => w.UserId == userId);
 
-        // Step 2: Handle Points Earned (The Takeback)
-        if (order.PointsEarned > 0)
+        if (wallet == null)
         {
-            // SUBTRACT earned points from balance (allow negative balance - user debt)
-            wallet.Balance -= order.PointsEarned;
+            // Edge case: Create new wallet with adjusted balance
+            // (rare in cancellation flow, but defensive)
+            decimal newBalance = -pointsEarned + pointsRedeemed;
+            wallet = new RewardWallet
+            {
+                UserId = userId,
+                Balance = newBalance
+            };
+            _context.RewardWallets.Add(wallet);
+        }
+        else
+        {
+            // PHASE 2: Native SQL for Balance Update (bypasses EF Core concurrency checks)
+            // Calculate net adjustment: earned points decrease balance, redeemed points increase it
+            decimal balanceAdjustment = -pointsEarned + pointsRedeemed;
 
+            if (balanceAdjustment != 0)
+            {
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $@"UPDATE ""RewardWallets"" 
+                       SET ""Balance"" = ""Balance"" + {balanceAdjustment}, 
+                           ""UpdatedAt"" = {DateTime.UtcNow}
+                       WHERE ""Id"" = {wallet.Id}");
+            }
+        }
+
+        // PHASE 3: Record Transaction Entries via EF Core INSERTS (no concurrency risk)
+        // Add transactions directly to context, NOT through wallet.Transactions to keep wallet detached
+        if (pointsEarned > 0)
+        {
             var earnedReversal = new RewardTransaction
             {
                 WalletId = wallet.Id,
-                Amount = -order.PointsEarned,
+                Amount = -pointsEarned,
                 Type = RewardType.Refunded,
-                Description = $"Points reversed due to cancellation of Order #{order.Id:N}",
-                RelatedOrderId = order.Id
+                Description = $"Points reversed due to cancellation of Order #{orderId:N}",
+                RelatedOrderId = orderId
             };
 
-            wallet.Transactions.Add(earnedReversal);
+            _context.RewardTransactions.Add(earnedReversal);
         }
 
-        // Step 3: Handle Points Redeemed (The Refund)
-        if (order.PointsRedeemed > 0)
+        if (pointsRedeemed > 0)
         {
-            // ADD redeemed points back to balance
-            wallet.Balance += order.PointsRedeemed;
-
             var redeemedRefund = new RewardTransaction
             {
                 WalletId = wallet.Id,
-                Amount = order.PointsRedeemed,
+                Amount = pointsRedeemed,
                 Type = RewardType.Refunded,
-                Description = $"Points returned from cancellation of Order #{order.Id:N}",
-                RelatedOrderId = order.Id
+                Description = $"Points returned from cancellation of Order #{orderId:N}",
+                RelatedOrderId = orderId
             };
 
-            wallet.Transactions.Add(redeemedRefund);
+            _context.RewardTransactions.Add(redeemedRefund);
         }
-
-        // NOTE: Do NOT save here. Changes remain in memory, tracked by EF Core.
-        // The caller's SaveChangesAsync() will persist all changes atomically.
     }
 
     public async Task AdminAdjustPointsAsync(Guid userId, decimal amount, string reason)
@@ -175,29 +221,28 @@ public class RewardService(AppDbContext context) : IRewardService
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Two-query approach for wallet creation:
+    /// 1. Check local context (AsNoTracking)
+    /// 2. Query database fresh
+    /// 3. Create if not exists (don't save immediately)
+    /// </summary>
     private async Task<RewardWallet> GetOrCreateWalletAsync(Guid userId)
     {
-        // Check Local context first to prevent tracking conflicts
-        // (wallet may have been added in current session but not yet saved)
-        var wallet = _context.RewardWallets.Local.FirstOrDefault(w => w.UserId == userId);
-
-        if (wallet != null)
-        {
-            return wallet;
-        }
-
-        // Not in local context, query database
-        wallet = await _context.RewardWallets
-            .Include(w => w.Transactions)
+        // Query without tracking to check if wallet exists
+        var wallet = await _context.RewardWallets
+            .AsNoTracking()
             .FirstOrDefaultAsync(w => w.UserId == userId);
 
         if (wallet != null)
         {
-            return wallet;
+            // Re-attach to context for modifications
+            return await _context.RewardWallets
+                .Include(w => w.Transactions)
+                .FirstOrDefaultAsync(w => w.UserId == userId) ?? wallet;
         }
 
         // Create new wallet but DON'T save yet
-        // EF Core will insert it when caller calls SaveChangesAsync
         wallet = new RewardWallet
         {
             UserId = userId,
@@ -205,8 +250,6 @@ public class RewardService(AppDbContext context) : IRewardService
         };
 
         _context.RewardWallets.Add(wallet);
-        // NOTE: Do NOT call SaveChangesAsync here
-        // The caller (RefundPointsAsync or AdminAdjustPointsAsync) will save atomically
 
         return wallet;
     }
