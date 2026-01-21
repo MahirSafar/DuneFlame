@@ -1,4 +1,5 @@
 ﻿using DuneFlame.Domain.Common;
+using System.ComponentModel.DataAnnotations;
 
 namespace DuneFlame.Domain.Entities;
 
@@ -14,4 +15,8 @@ public class RefreshToken : BaseEntity
 
     public Guid UserId { get; set; }
     public ApplicationUser? User { get; set; }
+
+    // Optimistic concurrency token for detecting concurrent modifications
+    [Timestamp]
+    public byte[]? RowVersion { get; set; }
 }

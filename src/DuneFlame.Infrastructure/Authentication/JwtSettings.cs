@@ -8,4 +8,5 @@ public class JwtSettings
     public string Audience { get; set; } = string.Empty;
     public int AccessTokenExpirationInMinutes { get; set; }
     public int RefreshTokenExpirationInDays { get; set; }
+    public int RefreshTokenRevocationGracePeriodSeconds { get; set; } = 30;
 }

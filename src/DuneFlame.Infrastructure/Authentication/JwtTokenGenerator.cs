@@ -29,6 +29,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()), // Added for ASP.NET Identity compatibility
             new(JwtRegisteredClaimNames.Email, user.Email ?? ""),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
@@ -67,7 +68,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         var tokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false,
-            ValidateIssuer = false,
+            ValidateIssuer = false,         
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret)),
             ValidateLifetime = false

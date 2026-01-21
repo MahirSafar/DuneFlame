@@ -2,11 +2,13 @@
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Exceptions;
+using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Security.Authentication;
 using System.Security.Claims;
 
@@ -18,7 +20,8 @@ public class AuthService(
     IJwtTokenGenerator jwtTokenGenerator,
     IEmailService emailService,
     ILogger<AuthService> logger,
-    AppDbContext context) : IAuthService
+    AppDbContext context,
+    IOptions<JwtSettings> jwtSettings) : IAuthService
 {
     private readonly UserManager<ApplicationUser> _userManager = userManager;
     private readonly SignInManager<ApplicationUser> _signInManager = signInManager;
@@ -26,6 +29,7 @@ public class AuthService(
     private readonly IEmailService _emailService = emailService;
     private readonly ILogger _logger = logger;
     private readonly AppDbContext _context = context;
+    private readonly JwtSettings _jwtSettings = jwtSettings.Value;
 
     public async Task<bool> RegisterAsync(RegisterRequest request)
     {
@@ -88,12 +92,22 @@ public class AuthService(
         var principal = _jwtTokenGenerator.GetPrincipalFromExpiredToken(request.AccessToken);
         if (principal == null) throw new AuthenticationException("Invalid token.");
 
-        var userId = principal.Claims.FirstOrDefault(c => c.Type == System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-        var user = await _userManager.FindByIdAsync(userId!);
+        // Check for userId in both Sub (JWT standard) and NameIdentifier (ASP.NET Identity standard)
+        var userId = principal.Claims.FirstOrDefault(c => c.Type == System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value 
+                     ?? principal.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            _logger.LogWarning("Refresh failed: UserId not found in claims. Available claims: {Claims}", 
+                string.Join(", ", principal.Claims.Select(c => $"{c.Type}={c.Value}")));
+            throw new AuthenticationException("User not found.");
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
 
         if (user == null) throw new AuthenticationException("User not found.");
 
-        // 2. Refresh token bazada varmı və aktivdirmi?
+        // 2. Refresh token bazada varmı?
         var storedRefreshToken = await _context.RefreshTokens
             .Include(x => x.User)
             .FirstOrDefaultAsync(x => x.Token == request.RefreshToken && x.UserId == user.Id);
@@ -104,15 +118,63 @@ public class AuthService(
         if (storedRefreshToken.User == null)
             throw new AuthenticationException("Invalid refresh token state.");
 
-        if (!storedRefreshToken.IsActive)
-            throw new AuthenticationException("Invalid or expired refresh token.");
+        // 3. Check if token is active or within grace period after revocation
+        var gracePeriod = TimeSpan.FromSeconds(_jwtSettings.RefreshTokenRevocationGracePeriodSeconds);
+        bool isWithinGracePeriod = storedRefreshToken.Revoked.HasValue && 
+                                   (DateTime.UtcNow - storedRefreshToken.Revoked.Value) < gracePeriod;
 
-        // 3. Köhnə tokeni ləğv et (Revoke)
+        if (!storedRefreshToken.IsActive && !isWithinGracePeriod)
+        {
+            _logger.LogWarning(
+                "Refresh token rejected for user {UserId}: expired or revoked more than {GracePeriod}s ago (revoked at {RevokedAt})",
+                user.Id, _jwtSettings.RefreshTokenRevocationGracePeriodSeconds, storedRefreshToken.Revoked);
+            throw new AuthenticationException("Invalid or expired refresh token.");
+        }
+
+        // 4. If token was already revoked (within grace period), check if a newer token exists
+        if (storedRefreshToken.Revoked.HasValue && isWithinGracePeriod)
+        {
+            _logger.LogInformation(
+                "Refresh token reuse detected within grace period for user {UserId}. Checking for replacement token...",
+                user.Id);
+
+            // Get the most recent active refresh token for this user
+            // Query using DateTime.UtcNow for expiration check (not IsExpired property which EF can't translate)
+            var utcNow = DateTime.UtcNow;
+            var newestToken = await _context.RefreshTokens
+                .Where(x => x.UserId == user.Id && x.Expires > utcNow && x.Revoked == null)
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (newestToken != null)
+            {
+                _logger.LogInformation(
+                    "Returning existing active token (idempotent response) for user {UserId}",
+                    user.Id);
+
+                // Return the newest active token for this user (idempotent response)
+                var roles = await _userManager.GetRolesAsync(user);
+                var accessToken = _jwtTokenGenerator.GenerateAccessToken(user, roles);
+
+                return new AuthResponse(
+                    user.Id,
+                    user.Email!,
+                    user.FirstName,
+                    user.LastName,
+                    accessToken,
+                    newestToken.Token,
+                    roles.ToList()
+                );
+            }
+        }
+
+        // 5. Token is valid and active - revoke it and issue new tokens
         storedRefreshToken.Revoked = DateTime.UtcNow;
         _context.RefreshTokens.Update(storedRefreshToken);
         await _context.SaveChangesAsync();
 
-        // 4. Yeni tokenləri yarat
+        // 6. Generate new tokens
+        _logger.LogInformation("Successfully refreshed token for user {UserId}", user.Id);
         return await GenerateAuthResponseAsync(user);
     }
 
