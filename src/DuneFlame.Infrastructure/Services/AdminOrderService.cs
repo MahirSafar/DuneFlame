@@ -124,11 +124,7 @@ public class AdminOrderService(
         {
             var order = await _context.Orders
                 .Include(o => o.ApplicationUser)
-                .FirstOrDefaultAsync(o => o.Id == orderId);
-            if (order == null)
-            {
-                throw new NotFoundException($"Order not found: {orderId}");
-            }
+                .FirstOrDefaultAsync(o => o.Id == orderId) ?? throw new NotFoundException($"Order not found: {orderId}");
 
             // Validate status transition
             ValidateStatusTransition(order.Status, status);
@@ -270,24 +266,40 @@ public class AdminOrderService(
                 }
 
                 // 2B: Restock Inventory via native SQL
+                // Need to fetch weight info for each ProductPrice to calculate kg to return
                 foreach (var item in order.Items)
                 {
                     try
                     {
-                        await _context.Database.ExecuteSqlInterpolatedAsync(
-                            $@"UPDATE ""Products"" 
-                               SET ""StockQuantity"" = ""StockQuantity"" + {item.Quantity} 
-                               WHERE ""Id"" = {item.ProductId}");
+                        // Get ProductPrice with Weight info
+                        var productPrice = await _context.ProductPrices
+                            .Include(pp => pp.Weight)
+                            .FirstOrDefaultAsync(pp => pp.Id == item.ProductPriceId);
 
-                    _logger.LogInformation("Restocked {Quantity} units of Product {ProductId}", 
-                        item.Quantity, item.ProductId);
+                        if (productPrice != null && productPrice.Weight != null)
+                        {
+                            // Calculate kg to add back: Quantity * (WeightGrams / 1000)
+                            decimal kgToAddBack = item.Quantity * (productPrice.Weight.Grams / 1000m);
+
+                            // Get the product to update stock
+                            var product = await _context.Products.FindAsync(productPrice.ProductId);
+                            if (product != null)
+                            {
+                                product.StockInKg += kgToAddBack;
+                                _context.Products.Update(product);
+                                await _context.SaveChangesAsync();
+
+                                _logger.LogInformation("Restocked {KgAmount}kg of Product {ProductPriceId}", 
+                                    kgToAddBack, item.ProductPriceId);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to restock inventory for ProductPrice {ProductPriceId}", item.ProductPriceId);
+                        throw;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to restock inventory for Product {ProductId}", item.ProductId);
-                    throw;
-                }
-            }
 
             // 2C: Reverse Reward Points via Unit of Work Pattern
             if (order.PointsEarned > 0 || order.PointsRedeemed > 0)
@@ -374,7 +386,7 @@ public class AdminOrderService(
      {
          var orderItems = order.Items.Select(oi => new OrderItemDto(
              oi.Id,
-             oi.ProductId,
+             oi.ProductPriceId,
              oi.ProductName,
              oi.UnitPrice,
              oi.Quantity
@@ -401,12 +413,15 @@ public class AdminOrderService(
              order.Id,
              order.Status,
              order.TotalAmount,
+             order.CurrencyCode,
              order.CreatedAt,
              shippingAddress,
              customerName,
              customerEmail,
              customerPhone,
              paymentTransactionId,
+             order.PaymentIntentId,
+             null,
              orderItems
          );
      }

@@ -12,11 +12,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,18 +39,24 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, opt) =>
     }
 });
 
-// --- 2.1 CACHING (REDIS OR IN-MEMORY) ---
-builder.Services.AddStackExchangeRedisCache(options =>
+// --- 2.1 CACHING (HYBRIDCACHE WITH REDIS L2 BACKING STORE) ---
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrEmpty(redisConnection))
 {
-    var redisConnection = builder.Configuration.GetConnectionString("Redis");
-    if (!string.IsNullOrEmpty(redisConnection))
+    // Configure HybridCache with Redis as L2 backing store
+    builder.Services.AddHybridCache();
+
+    // Add StackExchangeRedis for distributed cache (L2 backing store)
+    builder.Services.AddStackExchangeRedisCache(options =>
     {
         options.Configuration = redisConnection;
-    }
-});
-
-if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("Redis")))
+        options.InstanceName = "DuneFlame_";
+    });
+}
+else
 {
+    // Fallback: HybridCache with in-memory L2 store
+    builder.Services.AddHybridCache();
     builder.Services.AddDistributedMemoryCache();
 }
 
@@ -85,6 +93,11 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSett
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection(StripeSettings.SectionName));
 
+// === CRITICAL: HTTP CONTEXT & CURRENCY PROVIDER ===
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrencyProvider, CurrencyProvider>();
+builder.Services.AddScoped<ICartValidator, CartValidator>();
+
 // İnfrastruktur Servisləri (Xətanın həlli buradadır)
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
@@ -108,6 +121,7 @@ builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IAdminContentService, AdminContentService>();
 builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
+builder.Services.AddScoped<IShippingService, ShippingService>();
 
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 
@@ -157,7 +171,11 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
     options.Secure = CookieSecurePolicy.SameAsRequest;
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 builder.Services.AddOpenApi();
 
 builder.Services.AddApiVersioning(options =>

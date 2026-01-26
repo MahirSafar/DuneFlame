@@ -69,7 +69,7 @@ public class PaymentController(
             var paymentIntent = await _paymentService.CreateOrUpdatePaymentIntentAsync(
                 basketId,
                 totalAmount,
-                "usd");
+                basket.CurrencyCode.ToString().ToLower());
 
             // Sync PaymentIntentId with the latest pending order for this user
             // Find the most recently created pending order and update it with the PaymentIntentId
@@ -139,7 +139,7 @@ public class PaymentController(
             {
                 OrderId = request.OrderId,
                 Amount = order.TotalAmount,
-                Currency = "usd",
+                CurrencyCode = order.CurrencyCode,
                 Status = "Pending",
                 PaymentMethod = string.Empty
             };
@@ -150,7 +150,7 @@ public class PaymentController(
             // Create Stripe Payment Intent
             var paymentIntent = await _paymentService.CreatePaymentIntentAsync(
                 order.TotalAmount,
-                "usd",
+                order.CurrencyCode.ToString().ToLower(),
                 request.OrderId);
 
             // Update PaymentTransaction with Stripe TransactionId

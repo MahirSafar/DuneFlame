@@ -21,59 +21,107 @@ public class StripePaymentService(
     private readonly IDistributedCache _cache = cache;
     private readonly ILogger<StripePaymentService> _logger = logger;
 
-    public async Task<PaymentIntentResponse> CreatePaymentIntentAsync(decimal amount, string currency, Guid orderId)
+    public async Task<PaymentIntentResponse> CreatePaymentIntentAsync(decimal amount, string currency, Guid orderId, string? basketId = null)
     {
         try
         {
             StripeConfiguration.ApiKey = _stripeSettings.SecretKey;
 
-            // Convert amount to cents (Stripe works with smallest currency unit)
-            var amountInCents = (long)(amount * 100);
+            // Convert amount to smallest currency unit (cents/fils) for Stripe
+            // Stripe requires amounts as integers in the smallest currency unit
+            long stripeAmount = (long)Math.Round(amount * 100, 0);
+
+            var metadata = new Dictionary<string, string>
+            {
+                { "OrderId", orderId.ToString() }
+            };
+
+            // Add BasketId to metadata if provided (for webhook to clean up basket after payment success)
+            if (!string.IsNullOrEmpty(basketId))
+            {
+                metadata.Add("BasketId", basketId);
+            }
 
             var options = new PaymentIntentCreateOptions
             {
-                Amount = amountInCents,
+                Amount = stripeAmount,
                 Currency = currency.ToLower(),
-                Metadata = new Dictionary<string, string>
-                {
-                    { "OrderId", orderId.ToString() }
-                }
+                Metadata = metadata
             };
 
             var service = new PaymentIntentService();
             var paymentIntent = await service.CreateAsync(options);
 
             _logger.LogInformation(
-                "Payment Intent created: {PaymentIntentId} for Order {OrderId}",
-                paymentIntent.Id, orderId);
+                "Payment Intent created: {PaymentIntentId} for Order {OrderId} with amount {Amount} {Currency}",
+                paymentIntent.Id, orderId, stripeAmount, currency);
 
             return new PaymentIntentResponse(paymentIntent.ClientSecret, paymentIntent.Id);
+            }
+            catch (StripeException ex)
+            {
+                _logger.LogError(ex, "Stripe error creating payment intent for Order {OrderId}", orderId);
+                throw new InvalidOperationException($"Failed to create payment intent: {ex.Message}", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error creating payment intent for Order {OrderId}", orderId);
+                throw;
+            }
         }
-        catch (StripeException ex)
-        {
-            _logger.LogError(ex, "Stripe error creating payment intent for Order {OrderId}", orderId);
-            throw new InvalidOperationException($"Failed to create payment intent: {ex.Message}", ex);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error creating payment intent for Order {OrderId}", orderId);
-            throw;
-        }
-    }
 
-    public async Task<RefundResponse> RefundPaymentAsync(string transactionId, decimal amount)
+        public async Task<PaymentIntentResponse> GetPaymentIntentAsync(string paymentIntentId)
+        {
+            try
+            {
+                StripeConfiguration.ApiKey = _stripeSettings.SecretKey;
+
+                var service = new PaymentIntentService();
+                var paymentIntent = await service.GetAsync(paymentIntentId);
+
+                if (paymentIntent == null)
+                {
+                    _logger.LogWarning("PaymentIntent not found: {PaymentIntentId}", paymentIntentId);
+                    throw new InvalidOperationException($"PaymentIntent {paymentIntentId} not found in Stripe.");
+                }
+
+                _logger.LogInformation(
+                    "Retrieved existing PaymentIntent: {PaymentIntentId} with ClientSecret {ClientSecret}",
+                    paymentIntent.Id, paymentIntent.ClientSecret ?? "N/A");
+
+                return new PaymentIntentResponse(paymentIntent.ClientSecret ?? string.Empty, paymentIntent.Id);
+            }
+            catch (StripeException ex) when (ex.StripeError?.Code == "resource_missing")
+            {
+                _logger.LogWarning(ex, "PaymentIntent {PaymentIntentId} not found in Stripe", paymentIntentId);
+                throw new InvalidOperationException($"PaymentIntent {paymentIntentId} not found or expired.", ex);
+            }
+            catch (StripeException ex)
+            {
+                _logger.LogError(ex, "Stripe error retrieving payment intent: {PaymentIntentId}", paymentIntentId);
+                throw new InvalidOperationException($"Failed to retrieve payment intent: {ex.Message}", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error retrieving payment intent: {PaymentIntentId}", paymentIntentId);
+                throw;
+            }
+        }
+
+        public async Task<RefundResponse> RefundPaymentAsync(string transactionId, decimal amount)
     {
         try
         {
             StripeConfiguration.ApiKey = _stripeSettings.SecretKey;
 
-            // Convert amount to cents
-            var amountInCents = (long)(amount * 100);
+            // Convert amount to smallest currency unit (cents/fils) for Stripe
+            // Stripe requires amounts as integers in the smallest currency unit
+            long stripeAmount = (long)Math.Round(amount * 100, 0);
 
             var options = new RefundCreateOptions
             {
                 PaymentIntent = transactionId,
-                Amount = amountInCents
+                Amount = stripeAmount
             };
 
             var service = new RefundService();
@@ -110,8 +158,9 @@ public class StripePaymentService(
                 : JsonSerializer.Deserialize<DuneFlame.Application.DTOs.Basket.CustomerBasketDto>(basketJson) 
                     ?? new DuneFlame.Application.DTOs.Basket.CustomerBasketDto { Id = basketId, Items = [] };
 
-            // Convert amount to cents
-            var amountInCents = (long)(amount * 100);
+            // Convert amount to smallest currency unit (cents/fils) for Stripe
+            // Stripe requires amounts as integers in the smallest currency unit
+            long stripeAmount = (long)Math.Round(amount * 100, 0);
 
             string paymentIntentId;
             PaymentIntent paymentIntent;
@@ -120,13 +169,13 @@ public class StripePaymentService(
             // If PaymentIntentId exists, update it; otherwise create new
             if (!string.IsNullOrEmpty(basket.PaymentIntentId))
             {
-                _logger.LogInformation("Updating existing PaymentIntent {PaymentIntentId} with amount {Amount}", 
-                    basket.PaymentIntentId, amount);
+                _logger.LogInformation("Updating existing PaymentIntent {PaymentIntentId} with amount {Amount} {Currency}", 
+                    basket.PaymentIntentId, stripeAmount, currency);
 
                 // Update existing PaymentIntent with amount and metadata
                 var updateOptions = new PaymentIntentUpdateOptions
                 {
-                    Amount = amountInCents,
+                    Amount = stripeAmount,
                     Metadata = new Dictionary<string, string>
                     {
                         { "BasketId", basketId }
@@ -137,13 +186,13 @@ public class StripePaymentService(
             }
             else
             {
-                _logger.LogInformation("Creating new PaymentIntent for basket {BasketId} with amount {Amount}", 
-                    basketId, amount);
+                _logger.LogInformation("Creating new PaymentIntent for basket {BasketId} with amount {Amount} {Currency}", 
+                    basketId, stripeAmount, currency);
 
                 // Create new PaymentIntent
                 var createOptions = new PaymentIntentCreateOptions
                 {
-                    Amount = amountInCents,
+                    Amount = stripeAmount,
                     Currency = currency.ToLower(),
                     Metadata = new Dictionary<string, string>
                     {
@@ -167,8 +216,8 @@ public class StripePaymentService(
             await _cache.SetStringAsync(basketId, updatedBasketJson, cacheOptions);
 
             _logger.LogInformation(
-                "PaymentIntent {PaymentIntentId} created/updated for basket {BasketId}",
-                paymentIntentId, basketId);
+                "PaymentIntent {PaymentIntentId} created/updated for basket {BasketId} with amount {Amount}",
+                paymentIntentId, basketId, stripeAmount);
 
             return new PaymentIntentResponse(paymentIntent.ClientSecret, paymentIntentId);
         }

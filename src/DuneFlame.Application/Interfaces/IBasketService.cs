@@ -7,4 +7,5 @@ public interface IBasketService
     Task<CustomerBasketDto> GetBasketAsync(string userId);
     Task UpdateBasketAsync(CustomerBasketDto basket);
     Task DeleteBasketAsync(string userId);
+    Task RemoveItemFromBasketAsync(string userId, Guid itemId);
 }

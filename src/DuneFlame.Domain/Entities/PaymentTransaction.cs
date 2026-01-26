@@ -1,4 +1,5 @@
 using DuneFlame.Domain.Common;
+using DuneFlame.Domain.Enums;
 
 namespace DuneFlame.Domain.Entities;
 
@@ -8,7 +9,7 @@ public class PaymentTransaction : BaseEntity
     public Order? Order { get; set; }
     public string TransactionId { get; set; } = string.Empty;
     public decimal Amount { get; set; }
-    public string Currency { get; set; } = "usd";
+    public Currency CurrencyCode { get; set; } = Currency.USD;
     public string Status { get; set; } = "Pending";
     public string PaymentMethod { get; set; } = string.Empty;
 

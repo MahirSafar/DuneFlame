@@ -1,4 +1,5 @@
 ﻿using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Enums;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Category> Categories { get; set; }
     public DbSet<Origin> Origins { get; set; }
     public DbSet<ProductImage> ProductImages { get; set; }
+    public DbSet<ProductWeight> ProductWeights { get; set; }
+    public DbSet<ProductPrice> ProductPrices { get; set; }
+    public DbSet<RoastLevelEntity> RoastLevels { get; set; }
+    public DbSet<GrindType> GrindTypes { get; set; }
     public DbSet<Slider> Sliders { get; set; }
     public DbSet<AboutSection> AboutSections { get; set; }
     public DbSet<Cart> Carts { get; set; }
@@ -27,6 +32,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<RewardWallet> RewardWallets { get; set; }
     public DbSet<RewardTransaction> RewardTransactions { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
+    public DbSet<Country> Countries { get; set; }
+    public DbSet<City> Cities { get; set; }
+    public DbSet<ShippingRate> ShippingRates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,36 +90,58 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasIndex(n => n.Email)
             .IsUnique();
 
+        // Product - Category Relationship (1-to-Many)
         modelBuilder.Entity<Product>()
-        .HasOne(p => p.Category)
-        .WithMany(c => c.Products)
-        .HasForeignKey(p => p.CategoryId)
-        .OnDelete(DeleteBehavior.Restrict); // Kateqoriya silinərsə məhsulları silmə (xəta ver)
+            .HasOne(p => p.Category)
+            .WithMany(c => c.Products)
+            .HasForeignKey(p => p.CategoryId)
+            .OnDelete(DeleteBehavior.Restrict);
 
-        // Product - Origin Relationship
+        // Product - Origin Relationship (1-to-Many)
         modelBuilder.Entity<Product>()
             .HasOne(p => p.Origin)
             .WithMany(o => o.Products)
             .HasForeignKey(p => p.OriginId)
-            .OnDelete(DeleteBehavior.SetNull); // Origin silinərsə OriginId-ni null-a çevir
+            .OnDelete(DeleteBehavior.SetNull);
 
-        // Product - Images Relationship
+        // Product - Images Relationship (1-to-Many)
         modelBuilder.Entity<ProductImage>()
             .HasOne(i => i.Product)
             .WithMany(p => p.Images)
             .HasForeignKey(i => i.ProductId)
-            .OnDelete(DeleteBehavior.Cascade); // Məhsul silinərsə şəkillərini də sil
+            .OnDelete(DeleteBehavior.Cascade);
 
-        // Precision for Price (PostgreSQL üçün vacibdir)
+        // Product - Prices Relationship (1-to-Many)
+        modelBuilder.Entity<ProductPrice>()
+            .HasOne(pp => pp.Product)
+            .WithMany(p => p.Prices)
+            .HasForeignKey(pp => pp.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // ProductPrice - ProductWeight Relationship (Many-to-1)
+        modelBuilder.Entity<ProductPrice>()
+            .HasOne(pp => pp.Weight)
+            .WithMany(pw => pw.Prices)
+            .HasForeignKey(pp => pp.ProductWeightId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Product - RoastLevel M2M Relationship
         modelBuilder.Entity<Product>()
-            .Property(p => p.Price)
+            .HasMany(p => p.RoastLevels)
+            .WithMany(r => r.Products)
+            .UsingEntity(j => j.ToTable("ProductRoastLevels"));
+
+        // Product - GrindType M2M Relationship
+        modelBuilder.Entity<Product>()
+            .HasMany(p => p.GrindTypes)
+            .WithMany(g => g.Products)
+            .UsingEntity(j => j.ToTable("ProductGrindTypes"));
+
+        // Product Precision and Configurations
+        modelBuilder.Entity<Product>()
+            .Property(p => p.StockInKg)
             .HasPrecision(18, 2);
 
-        modelBuilder.Entity<Product>()
-            .Property(p => p.DiscountPercentage)
-            .HasPrecision(18, 2);
-
-        // Product Slug Configuration
         modelBuilder.Entity<Product>()
             .Property(p => p.Slug)
             .IsRequired()
@@ -120,6 +150,46 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<Product>()
             .HasIndex(p => p.Slug)
             .IsUnique();
+
+        // ProductPrice Precision and Configuration
+        modelBuilder.Entity<ProductPrice>()
+            .Property(pp => pp.Price)
+            .HasPrecision(18, 2);
+
+        // ProductPrice unique constraint: one price per weight per currency
+        modelBuilder.Entity<ProductPrice>()
+            .HasIndex(pp => new { pp.ProductId, pp.ProductWeightId, pp.CurrencyCode })
+            .IsUnique();
+
+        // ProductPrice CurrencyCode default value
+        modelBuilder.Entity<ProductPrice>()
+            .Property(pp => pp.CurrencyCode)
+            .HasConversion<string>()
+            .HasDefaultValue(Currency.USD);
+
+        // ProductWeight Configurations
+        modelBuilder.Entity<ProductWeight>()
+            .Property(pw => pw.Label)
+            .IsRequired()
+            .HasMaxLength(50);
+
+        // RoastLevelEntity Configurations
+        modelBuilder.Entity<RoastLevelEntity>()
+            .Property(r => r.Name)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        // GrindType Configurations
+        modelBuilder.Entity<GrindType>()
+            .Property(g => g.Name)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        // Cart Configuration
+        modelBuilder.Entity<Cart>()
+            .Property(c => c.CurrencyCode)
+            .HasConversion<string>()
+            .HasDefaultValue(Currency.USD);
 
         // Cart - User Relationship (1-to-Many)
         modelBuilder.Entity<Cart>()
@@ -135,17 +205,37 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(ci => ci.CartId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // CartItem - Product Relationship (1-to-Many)
+        // CartItem - ProductPrice Relationship (Many-to-1)
         modelBuilder.Entity<CartItem>()
-            .HasOne(ci => ci.Product)
+            .HasOne(ci => ci.ProductPrice)
             .WithMany()
-            .HasForeignKey(ci => ci.ProductId)
+            .HasForeignKey(ci => ci.ProductPriceId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // CartItem - RoastLevel Relationship (Many-to-1)
+        modelBuilder.Entity<CartItem>()
+            .HasOne(ci => ci.RoastLevel)
+            .WithMany()
+            .HasForeignKey(ci => ci.RoastLevelId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // CartItem - GrindType Relationship (Many-to-1)
+        modelBuilder.Entity<CartItem>()
+            .HasOne(ci => ci.GrindType)
+            .WithMany()
+            .HasForeignKey(ci => ci.GrindTypeId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // CartItem Quantity Constraint
         modelBuilder.Entity<CartItem>()
             .Property(ci => ci.Quantity)
             .HasDefaultValue(1);
+
+        // Order Configuration
+        modelBuilder.Entity<Order>()
+            .Property(o => o.CurrencyCode)
+            .HasConversion<string>()
+            .HasDefaultValue(Currency.USD);
 
         // Order - User Relationship (1-to-Many)
         modelBuilder.Entity<Order>()
@@ -164,12 +254,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(o => o.TotalAmount)
             .HasPrecision(18, 2);
 
+        // OrderItem Configuration
+        modelBuilder.Entity<OrderItem>()
+            .Property(oi => oi.CurrencyCode)
+            .HasConversion<string>()
+            .HasDefaultValue(Currency.USD);
+
         // OrderItem - Order Relationship (1-to-Many)
         modelBuilder.Entity<OrderItem>()
             .HasOne(oi => oi.Order)
             .WithMany(o => o.Items)
             .HasForeignKey(oi => oi.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // OrderItem - ProductPrice Relationship (Many-to-1)
+        modelBuilder.Entity<OrderItem>()
+            .HasOne(oi => oi.ProductPrice)
+            .WithMany()
+            .HasForeignKey(oi => oi.ProductPriceId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // OrderItem - UnitPrice Precision
         modelBuilder.Entity<OrderItem>()
@@ -209,6 +312,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(o => o.PointsEarned)
             .HasPrecision(18, 2);
 
+        // PaymentTransaction Configuration
+        modelBuilder.Entity<PaymentTransaction>()
+            .Property(pt => pt.CurrencyCode)
+            .HasConversion<string>()
+            .HasDefaultValue(Currency.USD);
+
         // PaymentTransaction - Order Relationship (1-to-Many)
         modelBuilder.Entity<PaymentTransaction>()
             .HasOne(pt => pt.Order)
@@ -222,9 +331,59 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .IsRequired(false)
             .HasMaxLength(255);
 
-        // PaymentTransaction Amount Precision
-        modelBuilder.Entity<PaymentTransaction>()
-            .Property(pt => pt.Amount)
-            .HasPrecision(18, 2);
-    }
-}
+                // PaymentTransaction Amount Precision
+                modelBuilder.Entity<PaymentTransaction>()
+                    .Property(pt => pt.Amount)
+                    .HasPrecision(18, 2);
+
+                // Country Configuration
+                modelBuilder.Entity<Country>()
+                    .Property(c => c.Name)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                modelBuilder.Entity<Country>()
+                    .Property(c => c.Code)
+                    .IsRequired()
+                    .HasMaxLength(2);
+
+                // Unique constraint on Country Code (ISO 3166-1 alpha-2)
+                modelBuilder.Entity<Country>()
+                    .HasIndex(c => c.Code)
+                    .IsUnique();
+
+                // Country - Cities Relationship (1-to-Many)
+                modelBuilder.Entity<Country>()
+                    .HasMany(c => c.Cities)
+                    .WithOne(c => c.Country)
+                    .HasForeignKey(c => c.CountryId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // Country - ShippingRates Relationship (1-to-Many)
+                modelBuilder.Entity<Country>()
+                    .HasMany(c => c.ShippingRates)
+                    .WithOne(sr => sr.Country)
+                    .HasForeignKey(sr => sr.CountryId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // City Configuration
+                modelBuilder.Entity<City>()
+                    .Property(c => c.Name)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                // ShippingRate Configuration
+                modelBuilder.Entity<ShippingRate>()
+                    .Property(sr => sr.Currency)
+                    .HasConversion<string>();
+
+                modelBuilder.Entity<ShippingRate>()
+                    .Property(sr => sr.Cost)
+                    .HasPrecision(18, 2);
+
+                // Unique constraint on ShippingRate: (CountryId, Currency) tuple
+                modelBuilder.Entity<ShippingRate>()
+                    .HasIndex(sr => new { sr.CountryId, sr.Currency })
+                    .IsUnique();
+            }
+        }

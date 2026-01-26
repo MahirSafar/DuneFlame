@@ -158,6 +158,12 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("USD");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -183,13 +189,19 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("ProductId")
+                    b.Property<Guid>("GrindTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductPriceId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("Quantity")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1);
+
+                    b.Property<Guid>("RoastLevelId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -198,7 +210,11 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.HasIndex("CartId");
 
-                    b.HasIndex("ProductId");
+                    b.HasIndex("GrindTypeId");
+
+                    b.HasIndex("ProductPriceId");
+
+                    b.HasIndex("RoastLevelId");
 
                     b.ToTable("CartItems");
                 });
@@ -226,6 +242,33 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.City", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CountryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CountryId");
+
+                    b.ToTable("Cities");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ContactMessage", b =>
@@ -270,6 +313,39 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.ToTable("ContactMessages");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.Country", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Countries");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.ExternalLogin", b =>
                 {
                     b.Property<Guid>("Id")
@@ -305,6 +381,28 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("ExternalLogins");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.GrindType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GrindTypes");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.NewsletterSubscription", b =>
@@ -351,6 +449,12 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("USD");
 
                     b.Property<string>("PaymentIntentId")
                         .HasColumnType("text");
@@ -401,15 +505,21 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("OrderId")
-                        .HasColumnType("uuid");
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("USD");
 
-                    b.Property<Guid>("ProductId")
+                    b.Property<Guid>("OrderId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ProductName")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<Guid>("ProductPriceId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
@@ -424,6 +534,8 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductPriceId");
 
                     b.ToTable("OrderItems");
                 });
@@ -494,9 +606,11 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Currency")
+                    b.Property<string>("CurrencyCode")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("USD");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid");
@@ -543,14 +657,6 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<decimal>("DiscountPercentage")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<string>("FlavorNotes")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -561,26 +667,17 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<Guid?>("OriginId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("Price")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<int>("RoastLevel")
-                        .HasColumnType("integer");
-
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<int>("StockQuantity")
-                        .HasColumnType("integer");
+                    b.Property<decimal>("StockInKg")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Weight")
-                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -621,6 +718,69 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductPrice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("USD");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductWeightId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductWeightId");
+
+                    b.HasIndex("ProductId", "ProductWeightId", "CurrencyCode")
+                        .IsUnique();
+
+                    b.ToTable("ProductPrices");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductWeight", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Grams")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ProductWeights");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RefreshToken", b =>
@@ -726,6 +886,59 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.ToTable("RewardWallets");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.RoastLevelEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("RoastLevels");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ShippingRate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Cost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("CountryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CountryId", "Currency")
+                        .IsUnique();
+
+                    b.ToTable("ShippingRates");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.Slider", b =>
                 {
                     b.Property<Guid>("Id")
@@ -801,6 +1014,21 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("UserProfiles");
+                });
+
+            modelBuilder.Entity("GrindTypeProduct", b =>
+                {
+                    b.Property<Guid>("GrindTypesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductsId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("GrindTypesId", "ProductsId");
+
+                    b.HasIndex("ProductsId");
+
+                    b.ToTable("ProductGrindTypes", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", b =>
@@ -933,6 +1161,21 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("ProductRoastLevelEntity", b =>
+                {
+                    b.Property<Guid>("ProductsId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoastLevelsId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("ProductsId", "RoastLevelsId");
+
+                    b.HasIndex("RoastLevelsId");
+
+                    b.ToTable("ProductRoastLevels", (string)null);
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.Cart", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.ApplicationUser", "ApplicationUser")
@@ -952,15 +1195,42 @@ namespace DuneFlame.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
+                    b.HasOne("DuneFlame.Domain.Entities.GrindType", "GrindType")
                         .WithMany()
-                        .HasForeignKey("ProductId")
+                        .HasForeignKey("GrindTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DuneFlame.Domain.Entities.ProductPrice", "ProductPrice")
+                        .WithMany()
+                        .HasForeignKey("ProductPriceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DuneFlame.Domain.Entities.RoastLevelEntity", "RoastLevel")
+                        .WithMany()
+                        .HasForeignKey("RoastLevelId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Cart");
 
-                    b.Navigation("Product");
+                    b.Navigation("GrindType");
+
+                    b.Navigation("ProductPrice");
+
+                    b.Navigation("RoastLevel");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.City", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Country", "Country")
+                        .WithMany("Cities")
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Country");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ExternalLogin", b =>
@@ -993,7 +1263,15 @@ namespace DuneFlame.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("DuneFlame.Domain.Entities.ProductPrice", "ProductPrice")
+                        .WithMany()
+                        .HasForeignKey("ProductPriceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Order");
+
+                    b.Navigation("ProductPrice");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.PasswordResetToken", b =>
@@ -1047,6 +1325,25 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductPrice", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
+                        .WithMany("Prices")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DuneFlame.Domain.Entities.ProductWeight", "Weight")
+                        .WithMany("Prices")
+                        .HasForeignKey("ProductWeightId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Weight");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.ApplicationUser", "User")
@@ -1080,6 +1377,17 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("ApplicationUser");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ShippingRate", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Country", "Country")
+                        .WithMany("ShippingRates")
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Country");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.UserProfile", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.ApplicationUser", "User")
@@ -1089,6 +1397,21 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("GrindTypeProduct", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.GrindType", null)
+                        .WithMany()
+                        .HasForeignKey("GrindTypesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DuneFlame.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -1142,6 +1465,21 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ProductRoastLevelEntity", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DuneFlame.Domain.Entities.RoastLevelEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RoastLevelsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.ApplicationUser", b =>
                 {
                     b.Navigation("Carts");
@@ -1167,6 +1505,13 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("Products");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.Country", b =>
+                {
+                    b.Navigation("Cities");
+
+                    b.Navigation("ShippingRates");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.Order", b =>
                 {
                     b.Navigation("Items");
@@ -1182,6 +1527,13 @@ namespace DuneFlame.Infrastructure.Migrations
             modelBuilder.Entity("DuneFlame.Domain.Entities.Product", b =>
                 {
                     b.Navigation("Images");
+
+                    b.Navigation("Prices");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductWeight", b =>
+                {
+                    b.Navigation("Prices");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RewardWallet", b =>

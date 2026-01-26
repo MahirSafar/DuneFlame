@@ -56,8 +56,15 @@ public static class DbInitializer
             // 9. Seed Marketing Data
             await SeedMarketingDataAsync(context, logger);
 
+            // 10. Seed Shipping Data (Countries, Cities, Rates)
+            await SeedShippingDataAsync(context, logger);
+
             logger.LogInformation("Database initialization completed successfully.");
-        }
+            logger.LogInformation("✓ Multi-Currency Support: ProductPrices seeded for USD, AED");
+            logger.LogInformation("✓ Test Orders: Demo orders created with multi-currency support (USD, AED)");
+            logger.LogInformation("✓ Shipping System: Countries, cities, and rates seeded for database-driven shipping");
+            logger.LogInformation("✓ HybridCache: First product load will warm L1 (memory) and L2 (Redis) caches");
+            }
         catch (Exception ex)
         {
             logger.LogError(ex, "An error occurred while initializing the database.");
@@ -68,7 +75,7 @@ public static class DbInitializer
     private static async Task SeedRolesAsync(RoleManager<IdentityRole<Guid>> roleManager, ILogger<AppDbContext> logger)
     {
         logger.LogInformation("Seeding Roles...");
-        string[] roles = { "Admin", "Customer" };
+        string[] roles = ["Admin", "Customer"];
         foreach (var role in roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
@@ -145,11 +152,11 @@ public static class DbInitializer
         logger.LogInformation("Seeding Origins...");
         var origins = new List<Origin>
         {
-            new Origin { Name = "Ethiopia" },
-            new Origin { Name = "Colombia" },
-            new Origin { Name = "Brazil" },
-            new Origin { Name = "Kenya" },
-            new Origin { Name = "Costa Rica" }
+            new() { Name = "Ethiopia" },
+            new() { Name = "Colombia" },
+            new() { Name = "Brazil" },
+            new() { Name = "Kenya" },
+            new() { Name = "Costa Rica" }
         };
 
         await context.Origins.AddRangeAsync(origins);
@@ -166,11 +173,11 @@ public static class DbInitializer
         logger.LogInformation("Seeding Categories...");
         var categories = new List<Category>
         {
-            new Category { Name = "Coffee Beans", Slug = "coffee-beans" },
-            new Category { Name = "Coffee Machines", Slug = "coffee-machines" },
-            new Category { Name = "Coffee Accessories", Slug = "coffee-accessories" },
-            new Category { Name = "Cups & Mugs", Slug = "cups-and-mugs" },
-            new Category { Name = "Coffee Filters", Slug = "coffee-filters" }
+            new() { Name = "Coffee Beans", Slug = "coffee-beans" },
+            new() { Name = "Coffee Machines", Slug = "coffee-machines" },
+            new() { Name = "Cups & Mugs", Slug = "cups-and-mugs" },
+            new() { Name = "Coffee Accessories", Slug = "coffee-accessories" },
+            new() { Name = "Coffee Filters", Slug = "coffee-filters" }
         };
 
         await context.Categories.AddRangeAsync(categories);
@@ -179,242 +186,156 @@ public static class DbInitializer
 
     private static async Task SeedProductsAsync(AppDbContext context, ILogger<AppDbContext> logger)
     {
-        if (await context.Products.AnyAsync())
+        // Check if weights already seeded (idempotent)
+        if (await context.ProductWeights.AnyAsync())
         {
+            logger.LogInformation("Products already seeded. Skipping...");
             return;
         }
 
-        logger.LogInformation("Seeding Products...");
+        logger.LogInformation("Seeding ProductWeights, RoastLevels, GrindTypes, and Products for Silo v2...");
 
+        // 1. Seed ProductWeights (Master Data)
+        var weights = new List<ProductWeight>
+        {
+            new() { Label = "250g", Grams = 250 },
+            new() { Label = "1kg", Grams = 1000 }
+        };
+        await context.ProductWeights.AddRangeAsync(weights);
+        await context.SaveChangesAsync();
+
+        // Reload to get IDs
+        var weight250g = await context.ProductWeights.FirstOrDefaultAsync(w => w.Grams == 250);
+        var weight1kg = await context.ProductWeights.FirstOrDefaultAsync(w => w.Grams == 1000);
+
+        // 2. Seed RoastLevels (Master Data)
+        var roastLevels = new List<RoastLevelEntity>
+        {
+            new() { Name = "Light" },
+            new() { Name = "Medium" },
+            new() { Name = "Dark" }
+        };
+        await context.RoastLevels.AddRangeAsync(roastLevels);
+        await context.SaveChangesAsync();
+
+        // Reload to get IDs
+        var roastLight = await context.RoastLevels.FirstOrDefaultAsync(r => r.Name == "Light");
+        var roastMedium = await context.RoastLevels.FirstOrDefaultAsync(r => r.Name == "Medium");
+        var roastDark = await context.RoastLevels.FirstOrDefaultAsync(r => r.Name == "Dark");
+
+        // 3. Seed GrindTypes (Master Data)
+        var grindTypes = new List<GrindType>
+        {
+            new() { Name = "Whole Bean" },
+            new() { Name = "Espresso" },
+            new() { Name = "Filter" },
+            new() { Name = "French Press" }
+        };
+        await context.GrindTypes.AddRangeAsync(grindTypes);
+        await context.SaveChangesAsync();
+
+        // Reload to get IDs
+        var grindWholeBean = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "Whole Bean");
+        var grindEspresso = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "Espresso");
+        var grindFilter = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "Filter");
+        var grindFrenchPress = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "French Press");
+
+        // 4. Get categories and origins
         var categories = await context.Categories.ToListAsync();
         var origins = await context.Origins.ToListAsync();
 
-        if (!categories.Any())
+        if (categories.Count == 0 || origins.Count == 0)
         {
-            logger.LogWarning("No categories found. Skipping product seeding.");
+            logger.LogWarning("Categories or Origins not found. Skipping product seeding.");
             return;
         }
 
+        var coffeeBeansCategory = categories.FirstOrDefault(c => c.Slug == "coffee-beans");
         var ethiopiaOrigin = origins.FirstOrDefault(o => o.Name == "Ethiopia");
-        var colombiaOrigin = origins.FirstOrDefault(o => o.Name == "Colombia");
-        var brazilOrigin = origins.FirstOrDefault(o => o.Name == "Brazil");
-        var kenyaOrigin = origins.FirstOrDefault(o => o.Name == "Kenya");
 
-        var products = new List<Product>
+        if (coffeeBeansCategory == null || ethiopiaOrigin == null)
         {
-            // Coffee Beans - with origins and roast levels
-            new Product
-            {
-                Name = "Ethiopia Yirgacheffe",
-                Slug = "ethiopia-yirgacheffe",
-                Description = "Highest quality Ethiopian coffee with fruity aromas. This coffee is distinguished by floral and berry notes with a subtle acidity.",
-                Price = 30.00m,
-                DiscountPercentage = 10m,
-                StockQuantity = 100,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-beans")?.Id ?? categories[0].Id,
-                OriginId = ethiopiaOrigin?.Id,
-                RoastLevel = RoastLevel.Light,
-                Weight = 250,
-                FlavorNotes = "Floral, Berry, Citrus"
-            },
-            new Product
-            {
-                Name = "Colombia Geisha",
-                Slug = "colombia-geisha",
-                Description = "Premium coffee cultivated in the mountainous regions of Panama. Made from authentic Geisha beans, this is among the world's most valuable coffee varieties.",
-                Price = 35.50m,
-                DiscountPercentage = 0m,
-                StockQuantity = 75,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-beans")?.Id ?? categories[0].Id,
-                OriginId = colombiaOrigin?.Id,
-                RoastLevel = RoastLevel.Light,
-                Weight = 250,
-                FlavorNotes = "Floral, Jasmine, Citrus"
-            },
-            new Product
-            {
-                Name = "Brazil Santos",
-                Slug = "brazil-santos",
-                Description = "Smooth and rich-flavored classic Brazilian coffee. Known for deep chocolate and dry fruit notes.",
-                Price = 22.99m,
-                DiscountPercentage = 15m,
-                StockQuantity = 150,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-beans")?.Id ?? categories[0].Id,
-                OriginId = brazilOrigin?.Id,
-                RoastLevel = RoastLevel.Medium,
-                Weight = 500,
-                FlavorNotes = "Nutty, Chocolate, Dry Fruit"
-            },
-            new Product
-            {
-                Name = "Kenya AA",
-                Slug = "kenya-aa",
-                Description = "High-quality coffee grown in the foothills of Mount Kenya. Distinguished by dark berry notes.",
-                Price = 28.75m,
-                DiscountPercentage = 5m,
-                StockQuantity = 85,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-beans")?.Id ?? categories[0].Id,
-                OriginId = kenyaOrigin?.Id,
-                RoastLevel = RoastLevel.Medium,
-                Weight = 250,
-                FlavorNotes = "Blackcurrant, Wine, Berry"
-            },
+            logger.LogWarning("Coffee Beans category or Ethiopia origin not found.");
+            return;
+        }
 
-            // Coffee Machines
-            new Product
-            {
-                Name = "Espresso Machine Pro 3000",
-                Slug = "espresso-machine-pro-3000",
-                Description = "State-of-the-art espresso machine for professional-level coffee preparation. Features fully automatic system, steam system, and manual group head.",
-                Price = 699.99m,
-                DiscountPercentage = 15m,
-                StockQuantity = 20,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-machines")?.Id ?? categories[1].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 5000,
-                FlavorNotes = "Professional Grade"
-            },
-            new Product
-            {
-                Name = "Home Coffee Machine",
-                Slug = "home-coffee-machine",
-                Description = "Perfect for home use, easy to operate coffee machine. Compact design, energy efficient and durable.",
-                Price = 199.99m,
-                DiscountPercentage = 0m,
-                StockQuantity = 45,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-machines")?.Id ?? categories[1].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 3000,
-                FlavorNotes = "Compact, User-friendly"
-            },
-            new Product
-            {
-                Name = "French Press",
-                Slug = "french-press",
-                Description = "Classic French-style coffee brewing apparatus. Coffee brewed with this immersion method yields full aroma and taste.",
-                Price = 59.99m,
-                DiscountPercentage = 20m,
-                StockQuantity = 120,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-machines")?.Id ?? categories[1].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 800,
-                FlavorNotes = "Classic, Traditional"
-            },
-
-            // Accessories
-            new Product
-            {
-                Name = "Coffee Scale",
-                Slug = "coffee-scale",
-                Description = "Perfect scale for precise coffee measurement. Precision to 0.1 gram, digital display.",
-                Price = 89.99m,
-                DiscountPercentage = 0m,
-                StockQuantity = 60,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-accessories")?.Id ?? categories[2].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 400,
-                FlavorNotes = "Precision, Digital Display"
-            },
-            new Product
-            {
-                Name = "Coffee Grinder",
-                Slug = "coffee-grinder",
-                Description = "Professional coffee grinder for grinding your own beans. Burr grinder system, 15-step grind adjustments.",
-                Price = 179.99m,
-                DiscountPercentage = 10m,
-                StockQuantity = 40,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-accessories")?.Id ?? categories[2].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 1500,
-                FlavorNotes = "Professional, Burr Grinder"
-            },
-            new Product
-            {
-                Name = "Coffee Tamper",
-                Slug = "coffee-tamper",
-                Description = "High-quality coffee tamper. Made from stainless steel with ergonomic grip.",
-                Price = 34.99m,
-                DiscountPercentage = 0m,
-                StockQuantity = 200,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-accessories")?.Id ?? categories[2].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 200,
-                FlavorNotes = "Stainless Steel"
-            },
-
-            // Cups & Mugs
-            new Product
-            {
-                Name = "Ceramic Espresso Cup",
-                Slug = "ceramic-espresso-cup",
-                Description = "Handcrafted ceramic espresso cup set of 6. Heat-retaining ceramic material, antique design.",
-                Price = 55.99m,
-                DiscountPercentage = 18m,
-                StockQuantity = 80,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "cups-and-mugs")?.Id ?? categories[3].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 600,
-                FlavorNotes = "Ceramic, Handcrafted"
-            },
-            new Product
-            {
-                Name = "Glass Coffee Cup",
-                Slug = "glass-coffee-cup",
-                Description = "Premium glass coffee cup set of 2. Borosilicate glass, heat-resistant and transparent.",
-                Price = 29.99m,
-                DiscountPercentage = 0m,
-                StockQuantity = 110,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "cups-and-mugs")?.Id ?? categories[3].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 400,
-                FlavorNotes = "Glass, Heat-resistant"
-            },
-
-            // Filters
-            new Product
-            {
-                Name = "Paper Coffee Filter",
-                Slug = "paper-coffee-filter",
-                Description = "Paper filters for home coffee machines. Natural paper, environmentally friendly, 100 count package.",
-                Price = 12.99m,
-                DiscountPercentage = 0m,
-                StockQuantity = 500,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-filters")?.Id ?? categories[4].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 50,
-                FlavorNotes = "Paper, Eco-friendly"
-            },
-            new Product
-            {
-                Name = "Metal Coffee Filter",
-                Slug = "metal-coffee-filter",
-                Description = "Reusable metal coffee filter. Made from stainless steel, durable and eco-friendly.",
-                Price = 24.99m,
-                DiscountPercentage = 20m,
-                StockQuantity = 200,
-                IsActive = true,
-                CategoryId = categories.FirstOrDefault(c => c.Slug == "coffee-filters")?.Id ?? categories[4].Id,
-                RoastLevel = RoastLevel.None,
-                Weight = 100,
-                FlavorNotes = "Stainless Steel, Reusable"
-            }
+        // 5. Create Sample Product: Ethiopian Yirgacheffe
+        var ethiopianProduct = new Product
+        {
+            Name = "Ethiopian Yirgacheffe",
+            Slug = "ethiopian-yirgacheffe",
+            Description = "Highest quality Ethiopian coffee with fruity aromas. This coffee is distinguished by floral and berry notes with a subtle acidity.",
+            StockInKg = 50.0m, // Central Silo Stock
+            IsActive = true,
+            CategoryId = coffeeBeansCategory.Id,
+            OriginId = ethiopiaOrigin.Id
         };
 
-        await context.Products.AddRangeAsync(products);
+        // Add M2M relationships for RoastLevels
+        if (roastMedium != null) ethiopianProduct.RoastLevels.Add(roastMedium);
+        if (roastDark != null) ethiopianProduct.RoastLevels.Add(roastDark);
+
+        // Add M2M relationships for GrindTypes
+        if (grindWholeBean != null) ethiopianProduct.GrindTypes.Add(grindWholeBean);
+        if (grindEspresso != null) ethiopianProduct.GrindTypes.Add(grindEspresso);
+
+        await context.Products.AddAsync(ethiopianProduct);
         await context.SaveChangesAsync();
+
+        // 6. Create ProductPrices for Ethiopian Yirgacheffe (Multi-Currency Support)
+        var prices = new List<ProductPrice>();
+
+        // USD Prices
+        if (weight250g != null)
+        {
+            prices.Add(new ProductPrice
+            {
+                ProductId = ethiopianProduct.Id,
+                ProductWeightId = weight250g.Id,
+                Price = 15.00m,
+                CurrencyCode = Currency.USD
+            });
+        }
+
+        if (weight1kg != null)
+        {
+            prices.Add(new ProductPrice
+            {
+                ProductId = ethiopianProduct.Id,
+                ProductWeightId = weight1kg.Id,
+                Price = 55.00m,
+                CurrencyCode = Currency.USD
+            });
+        }
+
+        // AED Prices (approximately 3.67x USD rate)
+        if (weight250g != null)
+        {
+            prices.Add(new ProductPrice
+            {
+                ProductId = ethiopianProduct.Id,
+                ProductWeightId = weight250g.Id,
+                Price = 55.05m,
+                CurrencyCode = Currency.AED
+            });
+        }
+
+        if (weight1kg != null)
+        {
+            prices.Add(new ProductPrice
+            {
+                ProductId = ethiopianProduct.Id,
+                ProductWeightId = weight1kg.Id,
+                Price = 201.85m,
+                CurrencyCode = Currency.AED
+            });
+        }
+
+        await context.ProductPrices.AddRangeAsync(prices);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation("Silo v2 product seeding completed successfully with multi-currency support.");
+        logger.LogInformation("Created ProductPrices for: USD, AED (2 currencies x 2 weights = 4 price records).");
     }
 
     private static async Task SeedCmsContentAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -429,8 +350,7 @@ public static class DbInitializer
         // Seed Sliders
         var sliders = new List<Slider>
         {
-            new Slider
-            {
+            new() {
                 Title = "Fresh Coffee Beans",
                 Subtitle = "The finest coffee beans from around the world delivered directly to you",
                 ImageUrl = "https://images.unsplash.com/photo-1559056199-641a0ac8b3f7?w=1200&q=80",
@@ -438,8 +358,7 @@ public static class DbInitializer
                 Order = 1,
                 IsActive = true
             },
-            new Slider
-            {
+            new() {
                 Title = "Professional Coffee Machines",
                 Subtitle = "Brew barista-quality coffee in your own home",
                 ImageUrl = "https://images.unsplash.com/photo-1517668808822-9ebb02ae2a0e?w=1200&q=80",
@@ -447,8 +366,7 @@ public static class DbInitializer
                 Order = 2,
                 IsActive = true
             },
-            new Slider
-            {
+            new() {
                 Title = "Accessories & Filters",
                 Subtitle = "Enhance your coffee brewing experience",
                 ImageUrl = "https://images.unsplash.com/photo-1559056199-641a0ac8b3f7?w=1200&q=80",
@@ -463,14 +381,12 @@ public static class DbInitializer
         // Seed About Sections
         var aboutSections = new List<AboutSection>
         {
-            new AboutSection
-            {
+            new() {
                 Title = "Our Story",
                 Content = "DuneFlame is a coffee brand established in 2020. We carefully source beans from the world's finest coffee roasters and deliver them directly to our customers. Every cup of coffee tells a story - one of quality, passion, and craftsmanship.",
                 ImageUrl = "https://images.unsplash.com/photo-1495474472624-4c6730f399d4?w=600&q=80"
             },
-            new AboutSection
-            {
+            new() {
                 Title = "Sustainability Commitment",
                 Content = "We are committed to the environment and coffee farming communities. All our coffee beans are certified fair trade and grown using sustainable practices. Every purchase supports farmers, forest conservation efforts, and social initiatives.",
                 ImageUrl = "https://images.unsplash.com/photo-1447933601403-0c6688e7566e?w=600&q=80"
@@ -485,11 +401,13 @@ public static class DbInitializer
     {
         if (await context.Orders.AnyAsync())
         {
+            logger.LogInformation("Orders already seeded. Skipping...");
             return;
         }
 
-        logger.LogInformation("Seeding Mock Orders...");
+        logger.LogInformation("Seeding Test Orders with Multi-Currency Support...");
 
+        // Get demo user
         var demoUser = await userManager.FindByEmailAsync("demo@duneflame.com");
         if (demoUser == null)
         {
@@ -497,170 +415,79 @@ public static class DbInitializer
             return;
         }
 
-        var products = await context.Products.ToListAsync();
-        if (!products.Any())
+        // Get product price for USD
+        var productPrice = await context.ProductPrices
+            .Include(pp => pp.Weight)
+            .FirstOrDefaultAsync(pp => pp.CurrencyCode == Currency.USD && pp.Weight!.Grams == 250);
+
+        if (productPrice == null)
         {
-            logger.LogWarning("No products found. Skipping order seeding.");
+            logger.LogWarning("ProductPrice not found. Skipping order seeding.");
             return;
         }
 
-        var orders = new List<Order>();
-
-        // Order 1: Delivered
-        var order1 = new Order
+        // Create test order in USD
+        var usdOrder = new Order
         {
             UserId = demoUser.Id,
-            Status = OrderStatus.Delivered,
-            TotalAmount = 0,
-            ShippingAddress = "123 Main Street, New York, NY 10001, USA",
-            PointsEarned = 45,
-            PaymentIntentId = "pi_1234567890abcdef01234567",
+            ShippingAddress = "123 Coffee Street, Seattle, WA 98101, USA",
+            Status = OrderStatus.Paid,
+            TotalAmount = 15.00m,
+            PointsRedeemed = 0,
+            PointsEarned = 15,
+            PaymentIntentId = "pi_test_usd_" + Guid.NewGuid().ToString().Substring(0, 8),
+            CurrencyCode = Currency.USD,
             CreatedAt = DateTime.UtcNow.AddDays(-30)
         };
 
-        var product1 = products.FirstOrDefault(p => p.Name == "Ethiopia Yirgacheffe");
-        if (product1 != null)
+        // Add order item
+        var usdOrderItem = new OrderItem
         {
-            var sellingPrice1 = product1.Price * (1 - product1.DiscountPercentage / 100);
-            order1.Items.Add(new OrderItem
-            {
-                ProductId = product1.Id,
-                ProductName = product1.Name,
-                UnitPrice = sellingPrice1,
-                Quantity = 2
-            });
-            order1.TotalAmount += sellingPrice1 * 2;
-        }
-
-        var product2 = products.FirstOrDefault(p => p.Name == "French Press");
-        if (product2 != null)
-        {
-            var sellingPrice2 = product2.Price * (1 - product2.DiscountPercentage / 100);
-            order1.Items.Add(new OrderItem
-            {
-                ProductId = product2.Id,
-                ProductName = product2.Name,
-                UnitPrice = sellingPrice2,
-                Quantity = 1
-            });
-            order1.TotalAmount += sellingPrice2 * 1;
-        }
-
-        orders.Add(order1);
-
-        // Order 2: Paid
-        var order2 = new Order
-        {
-            UserId = demoUser.Id,
-            Status = OrderStatus.Paid,
-            TotalAmount = 0,
-            ShippingAddress = "123 Main Street, New York, NY 10001, USA",
-            PointsEarned = 35,
-            PaymentIntentId = "pi_abcdefgh12345678ijklmno",
-            CreatedAt = DateTime.UtcNow.AddDays(-10)
+            ProductPriceId = productPrice.Id,
+            ProductName = "Ethiopian Yirgacheffe",
+            UnitPrice = 15.00m,
+            Quantity = 1,
+            CurrencyCode = Currency.USD
         };
+        usdOrder.Items.Add(usdOrderItem);
 
-        var product3 = products.FirstOrDefault(p => p.Name == "Coffee Grinder");
-        if (product3 != null)
+        await context.Orders.AddAsync(usdOrder);
+
+        // Create test order in AED
+        var aedProductPrice = await context.ProductPrices
+            .Include(pp => pp.Weight)
+            .FirstOrDefaultAsync(pp => pp.CurrencyCode == Currency.AED && pp.Weight!.Grams == 250);
+
+        if (aedProductPrice != null)
         {
-            var sellingPrice3 = product3.Price * (1 - product3.DiscountPercentage / 100);
-            order2.Items.Add(new OrderItem
+            var aedOrder = new Order
             {
-                ProductId = product3.Id,
-                ProductName = product3.Name,
-                UnitPrice = sellingPrice3,
-                Quantity = 1
-            });
-            order2.TotalAmount += sellingPrice3 * 1;
+                UserId = demoUser.Id,
+                ShippingAddress = "Downtown, Dubai, UAE",
+                Status = OrderStatus.Paid,
+                TotalAmount = 55.05m,
+                PointsRedeemed = 0,
+                PointsEarned = 55,
+                PaymentIntentId = "pi_test_aed_" + Guid.NewGuid().ToString().Substring(0, 8),
+                CurrencyCode = Currency.AED,
+                CreatedAt = DateTime.UtcNow.AddDays(-15)
+            };
+
+            var aedOrderItem = new OrderItem
+            {
+                ProductPriceId = aedProductPrice.Id,
+                ProductName = "Ethiopian Yirgacheffe",
+                UnitPrice = 55.05m,
+                Quantity = 1,
+                CurrencyCode = Currency.AED
+            };
+            aedOrder.Items.Add(aedOrderItem);
+
+            await context.Orders.AddAsync(aedOrder);
         }
 
-        orders.Add(order2);
-
-        // Order 3: Cancelled
-        var order3 = new Order
-        {
-            UserId = demoUser.Id,
-            Status = OrderStatus.Cancelled,
-            TotalAmount = 0,
-            ShippingAddress = "123 Main Street, New York, NY 10001, USA",
-            PaymentIntentId = null, // No payment for cancelled orders
-            CreatedAt = DateTime.UtcNow.AddDays(-5)
-        };
-
-        var product4 = products.FirstOrDefault(p => p.Name == "Ceramic Espresso Cup");
-        if (product4 != null)
-        {
-            var sellingPrice4 = product4.Price * (1 - product4.DiscountPercentage / 100);
-            order3.Items.Add(new OrderItem
-            {
-                ProductId = product4.Id,
-                ProductName = product4.Name,
-                UnitPrice = sellingPrice4,
-                Quantity = 2
-            });
-            order3.TotalAmount += sellingPrice4 * 2;
-        }
-
-        orders.Add(order3);
-
-        // Order 4: Delivered
-        var order4 = new Order
-        {
-            UserId = demoUser.Id,
-            Status = OrderStatus.Delivered,
-            TotalAmount = 0,
-            ShippingAddress = "123 Main Street, New York, NY 10001, USA",
-            PointsEarned = 18,
-            PaymentIntentId = "pi_xyz9876543210fedcba987654",
-            CreatedAt = DateTime.UtcNow.AddDays(-60)
-        };
-
-        var product5 = products.FirstOrDefault(p => p.Name == "Paper Coffee Filter");
-        if (product5 != null)
-        {
-            var sellingPrice5 = product5.Price * (1 - product5.DiscountPercentage / 100);
-            order4.Items.Add(new OrderItem
-            {
-                ProductId = product5.Id,
-                ProductName = product5.Name,
-                UnitPrice = sellingPrice5,
-                Quantity = 3
-            });
-            order4.TotalAmount += sellingPrice5 * 3;
-        }
-
-        orders.Add(order4);
-
-        // Order 5: Delivered
-        var order5 = new Order
-        {
-            UserId = demoUser.Id,
-            Status = OrderStatus.Delivered,
-            TotalAmount = 0,
-            ShippingAddress = "123 Main Street, New York, NY 10001, USA",
-            PointsEarned = 100,
-            PaymentIntentId = "pi_5678901234567890abcdefgh",
-            CreatedAt = DateTime.UtcNow.AddDays(-45)
-        };
-
-        var product6 = products.FirstOrDefault(p => p.Name == "Espresso Machine Pro 3000");
-        if (product6 != null)
-        {
-            var sellingPrice6 = product6.Price * (1 - product6.DiscountPercentage / 100);
-            order5.Items.Add(new OrderItem
-            {
-                ProductId = product6.Id,
-                ProductName = product6.Name,
-                UnitPrice = sellingPrice6,
-                Quantity = 1
-            });
-            order5.TotalAmount += sellingPrice6 * 1;
-        }
-
-        orders.Add(order5);
-
-        await context.Orders.AddRangeAsync(orders);
         await context.SaveChangesAsync();
+        logger.LogInformation("Test orders seeded successfully with multi-currency support.");
     }
 
     private static async Task SeedMarketingDataAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -672,29 +499,25 @@ public static class DbInitializer
         {
             var newsletters = new List<NewsletterSubscription>
             {
-                new NewsletterSubscription
-                {
+                new() {
                     Email = "john@example.com",
                     IsVerified = true,
                     Source = "Footer",
                     CreatedAt = DateTime.UtcNow.AddDays(-30)
                 },
-                new NewsletterSubscription
-                {
+                new() {
                     Email = "sarah@example.com",
                     IsVerified = true,
                     Source = "Popup",
                     CreatedAt = DateTime.UtcNow.AddDays(-20)
                 },
-                new NewsletterSubscription
-                {
+                new() {
                     Email = "mike@example.com",
                     IsVerified = true,
                     Source = "Checkout",
                     CreatedAt = DateTime.UtcNow.AddDays(-15)
                 },
-                new NewsletterSubscription
-                {
+                new() {
                     Email = "emma@example.com",
                     IsVerified = false,
                     Source = "Footer",
@@ -710,8 +533,7 @@ public static class DbInitializer
         {
             var contactMessages = new List<ContactMessage>
             {
-                new ContactMessage
-                {
+                new() {
                     Name = "James Smith",
                     Email = "james@example.com",
                     Subject = "Coffee Quality Inquiry",
@@ -720,8 +542,7 @@ public static class DbInitializer
                     IpAddress = "192.168.1.1",
                     CreatedAt = DateTime.UtcNow.AddDays(-15)
                 },
-                new ContactMessage
-                {
+                new() {
                     Name = "Sarah Johnson",
                     Email = "sarah@example.com",
                     Subject = "Bulk Corporate Order",
@@ -731,8 +552,7 @@ public static class DbInitializer
                     IpAddress = "192.168.1.2",
                     CreatedAt = DateTime.UtcNow.AddDays(-8)
                 },
-                new ContactMessage
-                {
+                new() {
                     Name = "Michael Brown",
                     Email = "michael@example.com",
                     Subject = "Damaged Product Received",
@@ -746,6 +566,211 @@ public static class DbInitializer
             await context.ContactMessages.AddRangeAsync(contactMessages);
         }
 
-        await context.SaveChangesAsync();
-    }
-}
+                await context.SaveChangesAsync();
+            }
+
+            private static async Task SeedShippingDataAsync(AppDbContext context, ILogger<AppDbContext> logger)
+            {
+                logger.LogInformation("Seeding Shipping Data (Countries, Cities, Rates)...");
+
+                // Seed Countries (GCC Members Only)
+                if (!await context.Countries.AnyAsync())
+                {
+                    var countries = new List<Country>
+                    {
+                        new() { Name = "Saudi Arabia", Code = "SA", IsActive = true },
+                        new() { Name = "United Arab Emirates", Code = "AE", IsActive = true },
+                        new() { Name = "Qatar", Code = "QA", IsActive = true },
+                        new() { Name = "Kuwait", Code = "KW", IsActive = true },
+                        new() { Name = "Bahrain", Code = "BH", IsActive = true },
+                        new() { Name = "Oman", Code = "OM", IsActive = true }
+                    };
+
+                    await context.Countries.AddRangeAsync(countries);
+                    await context.SaveChangesAsync();
+                    logger.LogInformation("Countries seeded: {CountryCount} GCC countries added", countries.Count);
+                }
+
+                // Seed Cities (GCC Countries)
+                if (!await context.Cities.AnyAsync())
+                {
+                    var countries = await context.Countries.ToListAsync();
+                    var cities = new List<City>();
+
+                    // Saudi Arabia Cities/Regions
+                    var saCountry = countries.FirstOrDefault(c => c.Code == "SA");
+                    if (saCountry != null)
+                    {
+                        cities.AddRange(new[]
+                        {
+                            new City { Name = "Riyadh", CountryId = saCountry.Id },
+                            new City { Name = "Jeddah", CountryId = saCountry.Id },
+                            new City { Name = "Dammam", CountryId = saCountry.Id },
+                            new City { Name = "Khobar", CountryId = saCountry.Id },
+                            new City { Name = "Dhahran", CountryId = saCountry.Id },
+                            new City { Name = "Mecca", CountryId = saCountry.Id },
+                            new City { Name = "Medina", CountryId = saCountry.Id },
+                            new City { Name = "Tabuk", CountryId = saCountry.Id },
+                            new City { Name = "Buraydah", CountryId = saCountry.Id },
+                            new City { Name = "Hail", CountryId = saCountry.Id },
+                            new City { Name = "Qassim", CountryId = saCountry.Id },
+                            new City { Name = "Abha", CountryId = saCountry.Id },
+                            new City { Name = "Yanbu", CountryId = saCountry.Id },
+                            new City { Name = "Al Qurayyat", CountryId = saCountry.Id },
+                            new City { Name = "Sakaka", CountryId = saCountry.Id }
+                        });
+                    }
+
+                    // United Arab Emirates Cities/Regions (Emirates)
+                    var aeCountry = countries.FirstOrDefault(c => c.Code == "AE");
+                    if (aeCountry != null)
+                    {
+                        cities.AddRange(new[]
+                        {
+                            new City { Name = "Dubai", CountryId = aeCountry.Id },
+                            new City { Name = "Abu Dhabi", CountryId = aeCountry.Id },
+                            new City { Name = "Sharjah", CountryId = aeCountry.Id },
+                            new City { Name = "Ajman", CountryId = aeCountry.Id },
+                            new City { Name = "Ras Al Khaimah", CountryId = aeCountry.Id },
+                            new City { Name = "Fujairah", CountryId = aeCountry.Id },
+                            new City { Name = "Umm Al Quwain", CountryId = aeCountry.Id },
+                            new City { Name = "Al Ain", CountryId = aeCountry.Id },
+                            new City { Name = "Mussafah", CountryId = aeCountry.Id },
+                            new City { Name = "Khalifa City", CountryId = aeCountry.Id },
+                            new City { Name = "Deira", CountryId = aeCountry.Id },
+                            new City { Name = "Bur Dubai", CountryId = aeCountry.Id },
+                            new City { Name = "Jumeirah", CountryId = aeCountry.Id },
+                            new City { Name = "Downtown Dubai", CountryId = aeCountry.Id }
+                        });
+                    }
+
+                    // Qatar Cities/Regions
+                    var qaCountry = countries.FirstOrDefault(c => c.Code == "QA");
+                    if (qaCountry != null)
+                    {
+                        cities.AddRange(new[]
+                        {
+                            new City { Name = "Doha", CountryId = qaCountry.Id },
+                            new City { Name = "Al Rayyan", CountryId = qaCountry.Id },
+                            new City { Name = "Al Wakrah", CountryId = qaCountry.Id },
+                            new City { Name = "Al Khor", CountryId = qaCountry.Id },
+                            new City { Name = "Lusail", CountryId = qaCountry.Id },
+                            new City { Name = "Umm Salal", CountryId = qaCountry.Id },
+                            new City { Name = "Al Shamal", CountryId = qaCountry.Id },
+                            new City { Name = "Al Daayen", CountryId = qaCountry.Id },
+                            new City { Name = "Mesaieed", CountryId = qaCountry.Id }
+                        });
+                    }
+
+                    // Kuwait Cities/Regions (Governorates)
+                    var kwCountry = countries.FirstOrDefault(c => c.Code == "KW");
+                    if (kwCountry != null)
+                    {
+                        cities.AddRange(new[]
+                        {
+                            new City { Name = "Kuwait City", CountryId = kwCountry.Id },
+                            new City { Name = "Al Ahmadi", CountryId = kwCountry.Id },
+                            new City { Name = "Al Farwaniyah", CountryId = kwCountry.Id },
+                            new City { Name = "Jahra", CountryId = kwCountry.Id },
+                            new City { Name = "Mubarak Al-Kabeer", CountryId = kwCountry.Id },
+                            new City { Name = "Sabah Al-Salem", CountryId = kwCountry.Id },
+                            new City { Name = "Hawalli", CountryId = kwCountry.Id },
+                            new City { Name = "Salmiya", CountryId = kwCountry.Id },
+                            new City { Name = "Abbasiya", CountryId = kwCountry.Id },
+                            new City { Name = "Mahboula", CountryId = kwCountry.Id }
+                        });
+                    }
+
+                    // Bahrain Cities/Regions
+                    var bhCountry = countries.FirstOrDefault(c => c.Code == "BH");
+                    if (bhCountry != null)
+                    {
+                        cities.AddRange(new[]
+                        {
+                            new City { Name = "Manama", CountryId = bhCountry.Id },
+                            new City { Name = "Muharraq", CountryId = bhCountry.Id },
+                            new City { Name = "Riffa", CountryId = bhCountry.Id },
+                            new City { Name = "Isa Town", CountryId = bhCountry.Id },
+                            new City { Name = "Al Khbar", CountryId = bhCountry.Id },
+                            new City { Name = "Sitra", CountryId = bhCountry.Id },
+                            new City { Name = "Budaiya", CountryId = bhCountry.Id },
+                            new City { Name = "Juffair", CountryId = bhCountry.Id },
+                            new City { Name = "Adliya", CountryId = bhCountry.Id }
+                        });
+                    }
+
+                    // Oman Cities/Regions (Governorates)
+                    var omCountry = countries.FirstOrDefault(c => c.Code == "OM");
+                    if (omCountry != null)
+                    {
+                        cities.AddRange(new[]
+                        {
+                            new City { Name = "Muscat", CountryId = omCountry.Id },
+                            new City { Name = "Seeb", CountryId = omCountry.Id },
+                            new City { Name = "Salalah", CountryId = omCountry.Id },
+                            new City { Name = "Nizwa", CountryId = omCountry.Id },
+                            new City { Name = "Sohar", CountryId = omCountry.Id },
+                            new City { Name = "Ibra", CountryId = omCountry.Id },
+                            new City { Name = "Sur", CountryId = omCountry.Id },
+                            new City { Name = "Barka", CountryId = omCountry.Id },
+                            new City { Name = "Saham", CountryId = omCountry.Id },
+                            new City { Name = "Qurayyat", CountryId = omCountry.Id },
+                            new City { Name = "Mirbat", CountryId = omCountry.Id },
+                            new City { Name = "Adam", CountryId = omCountry.Id }
+                        });
+                    }
+
+                    await context.Cities.AddRangeAsync(cities);
+                    await context.SaveChangesAsync();
+                    logger.LogInformation("Cities seeded: {CityCount} GCC cities added", cities.Count);
+                }
+
+                    // Seed Shipping Rates
+                if (!await context.ShippingRates.AnyAsync())
+                {
+                    var countries = await context.Countries.ToListAsync();
+                    var rates = new List<ShippingRate>();
+
+                    foreach (var country in countries)
+                    {
+                        // Add rates for USD and AED
+                        rates.Add(new ShippingRate { CountryId = country.Id, Currency = Currency.USD, Cost = GetShippingCostUSD(country.Code) });
+                        rates.Add(new ShippingRate { CountryId = country.Id, Currency = Currency.AED, Cost = GetShippingCostAED(country.Code) });
+                    }
+
+                    await context.ShippingRates.AddRangeAsync(rates);
+                    await context.SaveChangesAsync();
+                    logger.LogInformation("Shipping Rates seeded: {RateCount} rates added", rates.Count);
+                }
+
+                logger.LogInformation("Shipping data initialization completed successfully.");
+            }
+
+            private static decimal GetShippingCostUSD(string countryCode)
+            {
+                return countryCode switch
+                {
+                    "SA" => 18.99m,
+                    "AE" => 22.99m,
+                    "QA" => 21.99m,
+                    "KW" => 20.99m,
+                    "BH" => 19.99m,
+                    "OM" => 24.99m,
+                    _ => 0m
+                };
+            }
+
+            private static decimal GetShippingCostAED(string countryCode)
+            {
+                return countryCode switch
+                {
+                    "SA" => 69.99m,
+                    "AE" => 15.00m,
+                    "QA" => 80.99m,
+                    "KW" => 77.00m,
+                    "BH" => 73.00m,
+                    "OM" => 91.99m,
+                    _ => 0m
+                };
+            }
+        }

@@ -1,18 +1,20 @@
-﻿using DuneFlame.Domain.Enums;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 
 namespace DuneFlame.Application.DTOs.Product;
 
 public record CreateProductRequest(
     string Name,
     string Description,
-    decimal Price,
-    decimal DiscountPercentage,
-    int StockQuantity,
+    decimal StockInKg,
     Guid CategoryId,
     Guid? OriginId,
-    RoastLevel RoastLevel,
-    int Weight,
-    string FlavorNotes,
+    List<Guid> RoastLevelIds,
+    List<Guid> GrindTypeIds,
+    List<ProductPriceCreateDto> Prices,
     List<IFormFile>? Images
+);
+
+public record ProductPriceCreateDto(
+    Guid ProductWeightId,
+    decimal Price
 );

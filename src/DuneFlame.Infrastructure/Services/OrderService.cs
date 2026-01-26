@@ -1,4 +1,5 @@
 using DuneFlame.Application.DTOs.Order;
+using DuneFlame.Application.DTOs.Basket;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Enums;
@@ -15,11 +16,17 @@ public class OrderService(
     AppDbContext context,
     IRewardService rewardService,
     IBasketService basketService,
+    ICurrencyProvider currencyProvider,
+    IPaymentService paymentService,
+    IShippingService shippingService,
     ILogger<OrderService> logger) : IOrderService
 {
     private readonly AppDbContext _context = context;
     private readonly IRewardService _rewardService = rewardService;
     private readonly IBasketService _basketService = basketService;
+    private readonly ICurrencyProvider _currencyProvider = currencyProvider;
+    private readonly IPaymentService _paymentService = paymentService;
+    private readonly IShippingService _shippingService = shippingService;
     private readonly ILogger<OrderService> _logger = logger;
 
     public async Task<OrderDto> CreateOrderAsync(Guid userId, CreateOrderRequest request)
@@ -36,6 +43,130 @@ public class OrderService(
                 throw new BadRequestException("Basket is empty. Cannot create order.");
             }
 
+            // IDEMPOTENCY CHECK: If basket has a PaymentIntentId, check for existing Pending order
+            // This handles the scenario where user cancels modal and clicks "Proceed" again
+            if (!string.IsNullOrEmpty(basket.PaymentIntentId))
+            {
+                var existingOrder = await _context.Orders
+                    .FirstOrDefaultAsync(o => 
+                        o.PaymentIntentId == basket.PaymentIntentId && 
+                        o.Status == OrderStatus.Pending);
+
+                if (existingOrder != null)
+                {
+                    _logger.LogInformation(
+                        "Idempotent return: Found existing Pending order {OrderId} with PaymentIntentId {PaymentIntentId}. Returning existing order for user {UserId}.",
+                        existingOrder.Id, basket.PaymentIntentId, userId);
+
+                    // Reload order with related data for mapping
+                    var reloadedOrder = await _context.Orders
+                        .Include(o => o.Items)
+                        .Include(o => o.ApplicationUser)
+                        .FirstOrDefaultAsync(o => o.Id == existingOrder.Id);
+
+                    if (reloadedOrder != null)
+                    {
+                        // PHASE 9: Retrieve existing PaymentIntent (DO NOT regenerate)
+                        // Only create new if PaymentIntentId is missing
+                        PaymentIntentResponse idempotentPaymentIntent;
+
+                        if (!string.IsNullOrEmpty(reloadedOrder.PaymentIntentId))
+                        {
+                            // RETRIEVE existing PaymentIntent - no new ID generation
+                            _logger.LogInformation(
+                                "Idempotent path: Retrieving existing PaymentIntent {PaymentIntentId} for Order {OrderId}",
+                                reloadedOrder.PaymentIntentId, reloadedOrder.Id);
+
+                            idempotentPaymentIntent = await _paymentService.GetPaymentIntentAsync(reloadedOrder.PaymentIntentId);
+                        }
+                        else
+                        {
+                            // PaymentIntentId is missing - this shouldn't happen if PaymentIntentId is persisted to Redis
+                            // But handle it gracefully by creating new one
+                            _logger.LogWarning(
+                                "Idempotent path: PaymentIntentId missing for existing Order {OrderId}. Creating new PaymentIntent.",
+                                reloadedOrder.Id);
+
+                            idempotentPaymentIntent = await _paymentService.CreatePaymentIntentAsync(
+                                reloadedOrder.TotalAmount,
+                                reloadedOrder.CurrencyCode.ToString().ToLower(),
+                                reloadedOrder.Id,
+                                request.BasketId);
+
+                            // Update the order entity with new PaymentIntentId
+                            reloadedOrder.PaymentIntentId = idempotentPaymentIntent.PaymentIntentId;
+                            _context.Orders.Update(reloadedOrder);
+                            await _context.SaveChangesAsync();
+
+                            // Also sync the basket in Redis with new PaymentIntentId
+                            basket.PaymentIntentId = idempotentPaymentIntent.PaymentIntentId;
+                            await _basketService.UpdateBasketAsync(basket);
+                        }
+
+                        var existingOrderDto = MapToOrderDto(reloadedOrder);
+                        return existingOrderDto with { ClientSecret = idempotentPaymentIntent.ClientSecret };
+                    }
+                }
+            }
+
+            // PREVENTION OF DOUBLE ORDERS: Check if this basket is already being processed
+            // 1. Check if basket has IsLocked flag
+            if (basket.IsLocked)
+            {
+                // Edge case: Basket is locked but we couldn't find the associated pending order
+                _logger.LogError(
+                    "Edge case detected: Basket {BasketId} is locked but no Pending order found with PaymentIntentId {PaymentIntentId}. " +
+                    "This may indicate incomplete order creation. Clearing lock.",
+                    request.BasketId, basket.PaymentIntentId);
+
+                // Clear the lock to allow retry
+                basket.IsLocked = false;
+                await _basketService.UpdateBasketAsync(basket);
+
+                throw new DuneFlame.Domain.Exceptions.ConflictException(
+                    "Order processing was interrupted. Please try again.");
+            }
+
+            // 2. Check if there's already a Pending order for this user within the last 60 seconds
+            // This prevents double-click submissions where the same user tries to place the same order twice
+            var sixtySecondsAgo = DateTime.UtcNow.AddSeconds(-60);
+            var recentPendingOrders = await _context.Orders
+                .Where(o => o.UserId == userId && 
+                            o.Status == OrderStatus.Pending &&
+                            o.CreatedAt > sixtySecondsAgo)
+                .OrderByDescending(o => o.CreatedAt)
+                .ToListAsync();
+
+            if (recentPendingOrders.Any())
+            {
+                _logger.LogWarning(
+                    "Found {Count} recent pending orders for user {UserId} in the last 60 seconds. Preventing potential duplicate.",
+                    recentPendingOrders.Count, userId);
+
+                // Check if any recent order has the same total amount (good indicator of duplicate attempt)
+                // We'll calculate the expected total first to make an accurate comparison
+                decimal expectedTotal = await CalculateOrderTotalAsync(userId, request, basket);
+
+                var potentialDuplicate = recentPendingOrders.FirstOrDefault(o => 
+                    Math.Abs(o.TotalAmount - expectedTotal) < 0.01m); // Allow small floating point variance
+
+                if (potentialDuplicate != null)
+                {
+                    _logger.LogWarning(
+                        "Found exact duplicate order attempt for user {UserId}: OrderId={OrderId}, Amount={Amount}, CreatedAt={CreatedAt}",
+                        userId, potentialDuplicate.Id, potentialDuplicate.TotalAmount, potentialDuplicate.CreatedAt);
+                    throw new DuneFlame.Domain.Exceptions.ConflictException(
+                        $"An identical order is already being processed (Order ID: {potentialDuplicate.Id}). Please wait at least 60 seconds before attempting again.");
+                }
+            }
+
+            // Allow the order to dictate the final currency
+            // The request.Currency takes precedence and will be used for the final order
+            var requestCurrency = request.Currency;
+            _logger.LogInformation(
+                "Processing order with currency: {Currency} (basket was in {BasketCurrency})",
+                requestCurrency, basket.CurrencyCode);
+
             // Use provided PaymentIntentId or fallback to basket's PaymentIntentId
             var paymentIntentId = request.PaymentIntentId ?? basket.PaymentIntentId;
 
@@ -47,51 +178,87 @@ public class OrderService(
                 TotalAmount = 0,
                 PointsRedeemed = 0,
                 PointsEarned = 0,
-                PaymentIntentId = paymentIntentId
+                PaymentIntentId = paymentIntentId,
+                CurrencyCode = Enum.Parse<Currency>(requestCurrency, ignoreCase: true)
             };
 
-            decimal totalAmount = 0;
+            decimal subtotal = 0;
 
             // Create order items from basket items
-            // Price MUST be taken from the database, not from the basket (security)
+            // Price and weight MUST be taken from the database (ProductPrice), not from the basket (security)
             foreach (var basketItem in basket.Items)
             {
-                var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == basketItem.ProductId);
+                // Get the product and its weight from the basket item's ProductPrice
+                var originalProductPrice = await _context.ProductPrices
+                    .Include(pp => pp.Product)
+                    .Include(pp => pp.Weight)
+                    .FirstOrDefaultAsync(pp => pp.Id == basketItem.ProductPriceId) ?? throw new NotFoundException($"ProductPrice with ID {basketItem.ProductPriceId} not found");
+                var product = originalProductPrice.Product ?? throw new NotFoundException($"Product for ProductPrice {basketItem.ProductPriceId} not found");
 
-                if (product == null)
-                {
-                    throw new NotFoundException($"Product with ID {basketItem.ProductId} not found");
-                }
+                // Now fetch the price for the requested currency using the same weight
+                var requestedCurrencyEnum = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
+                var requestedCurrencyPrice = await _context.ProductPrices
+                    .Where(pp => pp.ProductId == product.Id && 
+                                pp.ProductWeightId == originalProductPrice.ProductWeightId &&
+                                pp.CurrencyCode == requestedCurrencyEnum)
+                    .FirstOrDefaultAsync() ?? throw new NotFoundException($"Price not found for product '{product.Name}' in currency {requestCurrency}");
 
-                // Check stock availability
-                if (product.StockQuantity < basketItem.Quantity)
+                // Calculate total weight in KG: Quantity * (WeightGrams / 1000)
+                decimal totalWeightKg = basketItem.Quantity * (originalProductPrice.Weight!.Grams / 1000m);
+
+                // Check stock availability based on weight
+                if (product.StockInKg < totalWeightKg)
                 {
                     throw new BadRequestException(
-                        $"Insufficient stock for product '{product.Name}'. " +
-                        $"Available: {product.StockQuantity}, Requested: {basketItem.Quantity}");
+                        $"Insufficient stock for product '{product.Name}' (Weight: {originalProductPrice.Weight.Label}). " +
+                        $"Available: {product.StockInKg}kg, Requested: {totalWeightKg}kg");
                 }
 
-                // Calculate selling price from database: Price * (1 - DiscountPercentage/100)
-                var sellingPrice = product.Price * (1 - product.DiscountPercentage / 100);
+                    // Create OrderItem (snapshot) with database price in requested currency
+                    // CRITICAL SECURITY: Use REAL price from database, not frontend-provided price
+                    _logger.LogInformation(
+                        "Price lookup for ProductPriceId {ProductPriceId}: Database price = {Price} {Currency} (original was {OriginalCurrency})",
+                        basketItem.ProductPriceId, requestedCurrencyPrice.Price, requestedCurrencyPrice.CurrencyCode, originalProductPrice.CurrencyCode);
 
-                // Create OrderItem (snapshot) with database price
-                var orderItem = new OrderItem
+                    var orderItem = new OrderItem
+                    {
+                        ProductPriceId = requestedCurrencyPrice.Id,
+                        ProductName = product.Name,
+                        UnitPrice = requestedCurrencyPrice.Price,
+                        Quantity = basketItem.Quantity,
+                        CurrencyCode = requestedCurrencyPrice.CurrencyCode
+                    };
+
+                    order.Items.Add(orderItem);
+                    subtotal += requestedCurrencyPrice.Price * basketItem.Quantity;
+
+                    // Decrement product stock by weight
+                    product.StockInKg -= totalWeightKg;
+                    _context.Products.Update(product);
+                }
+
+                // VALIDATION: Check if country code looks valid (should be ISO 2-letter code)
+                if (request.ShippingAddress.Country.Length > 2)
                 {
-                    ProductId = product.Id,
-                    ProductName = product.Name,
-                    UnitPrice = sellingPrice,
-                    Quantity = basketItem.Quantity
-                };
+                    _logger.LogWarning(
+                        "Shipping country code appears invalid for Order {OrderId}: '{Country}' (expected ISO 2-letter code). " +
+                        "Frontend may be sending country name instead of ISO code.",
+                        order.Id, request.ShippingAddress.Country);
+                }
 
-                order.Items.Add(orderItem);
-                totalAmount += sellingPrice * basketItem.Quantity;
+                // Calculate shipping cost based on destination country and currency
+                var shippingCost = await _shippingService.GetShippingCostAsync(
+                    request.ShippingAddress.Country,
+                    order.CurrencyCode);
 
-                // Decrement product stock
-                product.StockQuantity -= basketItem.Quantity;
-                _context.Products.Update(product);
-            }
+                // Calculate total: Subtotal + Shipping
+                var totalAmount = subtotal + shippingCost;
 
-            order.TotalAmount = totalAmount;
+                order.TotalAmount = totalAmount;
+
+                _logger.LogInformation(
+                    "Order total calculation: Subtotal={Subtotal}, Shipping={Shipping}, Total={Total} {Currency}",
+                    subtotal, shippingCost, totalAmount, order.CurrencyCode);
 
             // Handle reward points redemption
             if (request.UsePoints)
@@ -115,22 +282,58 @@ public class OrderService(
 
             await _context.SaveChangesAsync();
 
-            // Lock basket in Redis to prevent modification during payment processing
-            // (Prevents race condition where user modifies basket while payment is being processed)
+            // Lock basket BEFORE creating PaymentIntent to prevent race conditions
             try
             {
-                // Update basket metadata to mark it as locked
-                basket.Id = request.BasketId;
+                basket.IsLocked = true;
                 await _basketService.UpdateBasketAsync(basket);
-                _logger.LogInformation("Basket {BasketId} locked during payment processing for Order {OrderId}", 
+                _logger.LogInformation("Basket {BasketId} locked before payment processing for Order {OrderId}", 
                     request.BasketId, order.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to lock basket {BasketId}. Payment may proceed but basket remains editable.", 
+                _logger.LogWarning(ex, "Failed to lock basket {BasketId}. Continuing with payment processing.", 
                     request.BasketId);
-                // Non-critical failure - don't abort order creation
             }
+
+            // Create Stripe PaymentIntent for the order
+            // Convert currency to lowercase (Stripe requirement: "usd", "aed")
+            // NOTE: We pass BasketId so it can be stored in metadata for webhook to clean up basket after payment success
+            var stripePaymentIntent = await _paymentService.CreatePaymentIntentAsync(
+                order.TotalAmount,
+                order.CurrencyCode.ToString().ToLower(),
+                order.Id,
+                request.BasketId);
+
+            // Update order with PaymentIntentId from Stripe
+            order.PaymentIntentId = stripePaymentIntent.PaymentIntentId;
+            _context.Orders.Update(order);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Stripe PaymentIntent created for Order {OrderId}: PaymentIntentId={PaymentIntentId}, Amount={Amount} {Currency}",
+                order.Id, stripePaymentIntent.PaymentIntentId, order.TotalAmount, order.CurrencyCode);
+
+            // IMPORTANT: Save PaymentIntentId to basket in Redis for idempotency check on retry
+            // This ensures that if user retries after canceling payment modal, idempotency check finds the existing order
+            try
+            {
+                basket.PaymentIntentId = stripePaymentIntent.PaymentIntentId;
+                await _basketService.UpdateBasketAsync(basket);
+                _logger.LogInformation(
+                    "Basket {BasketId} updated with PaymentIntentId {PaymentIntentId} for idempotency check",
+                    request.BasketId, stripePaymentIntent.PaymentIntentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, 
+                    "Failed to update basket {BasketId} with PaymentIntentId. Idempotency check may not work on retry, but order is still created.",
+                    request.BasketId);
+                // Non-critical failure - order is already created
+            }
+
+            // NOTE: Basket cleanup is now handled in WebhookController.HandlePaymentIntentSucceeded
+            // after payment is actually received (not just when order is created)
 
             await transaction.CommitAsync();
 
@@ -143,7 +346,9 @@ public class OrderService(
                 .Include(o => o.ApplicationUser)
                 .FirstOrDefaultAsync(o => o.Id == order.Id);
 
-            return MapToOrderDto(createdOrder!);
+            // Map to DTO and include ClientSecret (only for creation response)
+            var orderDto = MapToOrderDto(createdOrder!);
+            return orderDto with { ClientSecret = stripePaymentIntent.ClientSecret };
         }
         catch (Exception ex)
         {
@@ -207,7 +412,7 @@ public class OrderService(
                 {
                     OrderId = order.Id,
                     Amount = order.TotalAmount,
-                    Currency = "usd",
+                    CurrencyCode = order.CurrencyCode,
                     Status = "Succeeded",
                     TransactionId = paymentIntentId,
                     PaymentMethod = "card"
@@ -283,7 +488,7 @@ public class OrderService(
             .OrderByDescending(o => o.CreatedAt)
             .ToListAsync();
 
-        return orders.Select(MapToOrderDto).ToList();
+        return [.. orders.Select(MapToOrderDto)];
     }
 
     public async Task<OrderDto> GetOrderByIdAsync(Guid id)
@@ -292,21 +497,81 @@ public class OrderService(
             .Include(o => o.Items)
             .Include(o => o.ApplicationUser)
             .Include(o => o.PaymentTransactions)
-            .FirstOrDefaultAsync(o => o.Id == id);
-
-        if (order == null)
-        {
-            throw new NotFoundException($"Order with ID {id} not found");
-        }
-
+            .FirstOrDefaultAsync(o => o.Id == id) ?? throw new NotFoundException($"Order with ID {id} not found");
         return MapToOrderDto(order);
+    }
+
+    /// <summary>
+    /// Helper method to calculate expected order total for duplicate detection.
+    /// This allows us to detect if a new order request has the same total as a recent pending order.
+    /// </summary>
+    private async Task<decimal> CalculateOrderTotalAsync(Guid userId, CreateOrderRequest request, CustomerBasketDto basket)
+    {
+        try
+        {
+            decimal subtotal = 0;
+            var requestCurrency = request.Currency;
+
+            // Calculate subtotal from basket items
+            foreach (var basketItem in basket.Items)
+            {
+                var originalProductPrice = await _context.ProductPrices
+                    .Include(pp => pp.Product)
+                    .Include(pp => pp.Weight)
+                    .FirstOrDefaultAsync(pp => pp.Id == basketItem.ProductPriceId);
+
+                if (originalProductPrice == null)
+                    continue;
+
+                // Fetch price in requested currency
+                var requestedCurrencyEnum = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
+                var requestedCurrencyPrice = await _context.ProductPrices
+                    .Where(pp => pp.ProductId == originalProductPrice.ProductId && 
+                                pp.ProductWeightId == originalProductPrice.ProductWeightId &&
+                                pp.CurrencyCode == requestedCurrencyEnum)
+                    .FirstOrDefaultAsync();
+
+                if (requestedCurrencyPrice != null)
+                {
+                    subtotal += requestedCurrencyPrice.Price * basketItem.Quantity;
+                }
+            }
+
+            // Get shipping cost
+            var currency = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
+            var shippingCost = await _shippingService.GetShippingCostAsync(
+                request.ShippingAddress.Country,
+                currency);
+
+            var totalAmount = subtotal + shippingCost;
+
+            // Handle reward points redemption if applicable
+            if (request.UsePoints)
+            {
+                var wallet = await _context.RewardWallets
+                    .FirstOrDefaultAsync(w => w.UserId == userId);
+
+                if (wallet != null && wallet.Balance > 0)
+                {
+                    var discount = Math.Min(wallet.Balance, totalAmount);
+                    totalAmount -= discount;
+                }
+            }
+
+            return totalAmount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating expected order total for duplicate detection. Assuming unique order.");
+            return -1; // Return negative value to skip duplicate amount comparison
+        }
     }
 
     private static OrderDto MapToOrderDto(Order order)
     {
         var orderItems = order.Items.Select(oi => new OrderItemDto(
             oi.Id,
-            oi.ProductId,
+            oi.ProductPriceId,
             oi.ProductName,
             oi.UnitPrice,
             oi.Quantity
@@ -333,12 +598,15 @@ public class OrderService(
             order.Id,
             order.Status,
             order.TotalAmount,
+            order.CurrencyCode,
             order.CreatedAt,
             shippingAddress,
             customerName,
             customerEmail,
             customerPhone,
             paymentTransactionId,
+            order.PaymentIntentId,
+            null, // ClientSecret is only included in CreateOrderResponse, not in OrderDto for GET requests
             orderItems
         );
     }

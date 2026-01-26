@@ -62,9 +62,9 @@ public class AdminDashboardService(
             // 7. Count Total Products
             var totalProducts = await _context.Products.CountAsync();
 
-            // 8. Count Low Stock Products (StockQuantity < 10)
+            // 8. Count Low Stock Products (StockInKg < 5.0)
             var lowStockCount = await _context.Products
-                .Where(p => p.StockQuantity < 10)
+                .Where(p => p.StockInKg < 5.0m)
                 .CountAsync();
 
             // 9. Get Recent Activities (latest 5 orders + latest 5 products)
@@ -107,10 +107,9 @@ public class AdminDashboardService(
             }
 
             // Combine, sort by time descending, and take top 10
-            recentActivities = recentActivities
+            recentActivities = [.. recentActivities
                 .OrderByDescending(a => a.Time)
-                .Take(10)
-                .ToList();
+                .Take(10)];
 
             // 10. Build Revenue Chart Data (last 7 days)
             var revenueChartData = await BuildRevenueChartDataAsync(DateTime.MinValue, DateTime.MaxValue);
@@ -228,13 +227,12 @@ public class AdminDashboardService(
 
     private async Task<List<TopProductDto>> BuildTopProductsDataAsync()
     {
-        // Query OrderItems, group by ProductId and ProductName
+        // Query OrderItems, group by ProductName
         var topProducts = await _context.OrderItems
-            .GroupBy(oi => new { oi.ProductId, oi.ProductName })
+            .GroupBy(oi => oi.ProductName)
             .Select(g => new
             {
-                ProductId = g.Key.ProductId,
-                ProductName = g.Key.ProductName,
+                ProductName = g.Key,
                 Sales = g.Sum(oi => oi.Quantity),
                 Revenue = g.Sum(oi => oi.UnitPrice * oi.Quantity)
             })
@@ -245,7 +243,7 @@ public class AdminDashboardService(
         // Map to TopProductDto
         return topProducts.Select(p => new TopProductDto
         {
-            Id = p.ProductId,
+            Id = Guid.Empty, // ProductPriceId is not used in summary view
             Name = p.ProductName,
             Sales = p.Sales,
             Revenue = p.Revenue

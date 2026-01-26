@@ -6,4 +6,6 @@ public class CustomerBasketDto
     public List<BasketItemDto> Items { get; set; } = [];
     public string? PaymentIntentId { get; set; }
     public string? ClientSecret { get; set; }
+    public string CurrencyCode { get; set; } = "USD";
+    public bool IsLocked { get; set; } = false;
 }

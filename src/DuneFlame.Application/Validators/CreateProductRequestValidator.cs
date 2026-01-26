@@ -19,61 +19,58 @@ public class CreateProductRequestValidator : AbstractValidator<CreateProductRequ
             .MinimumLength(10)
             .WithMessage("Product description must be at least 10 characters.");
 
-        RuleFor(x => x.Price)
-            .GreaterThan(0)
-            .WithMessage("Price must be greater than 0.")
+        RuleFor(x => x.StockInKg)
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("Stock in kg must be greater than or equal to 0.")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
-            .WithMessage("Price precision is invalid.");
-
-        RuleFor(x => x.DiscountPercentage)
-            .GreaterThanOrEqualTo(0)
-            .WithMessage("Discount percentage cannot be negative.")
-            .LessThanOrEqualTo(100)
-            .WithMessage("Discount percentage cannot exceed 100.");
-
-        RuleFor(x => x.StockQuantity)
-            .GreaterThanOrEqualTo(0)
-            .WithMessage("Stock quantity cannot be negative.");
+            .WithMessage("Stock precision is invalid.");
 
         RuleFor(x => x.CategoryId)
             .NotEmpty()
             .WithMessage("Category ID is required.");
 
-        RuleFor(x => x.Weight)
-            .GreaterThan(0)
-            .WithMessage("Weight must be greater than 0.");
-
-        RuleFor(x => x.FlavorNotes)
+        RuleFor(x => x.RoastLevelIds)
             .NotEmpty()
-            .WithMessage("Flavor notes are required.")
-            .MaximumLength(500)
-            .WithMessage("Flavor notes must not exceed 500 characters.");
+            .WithMessage("At least one roast level must be selected.");
+
+        RuleFor(x => x.GrindTypeIds)
+            .NotEmpty()
+            .WithMessage("At least one grind type must be selected.");
+
+        RuleFor(x => x.Prices)
+            .NotEmpty()
+            .WithMessage("At least one price entry is required.")
+            .ForEach(price =>
+            {
+                price.ChildRules(p =>
+                {
+                    p.RuleFor(pr => pr.Price)
+                        .GreaterThan(0)
+                        .WithMessage("Each price must be greater than 0.");
+                });
+            });
 
         RuleFor(x => x.Images)
             .Custom((images, context) =>
             {
                 if (images == null || images.Count == 0)
-                    return; // Images are optional
+                    return;
 
                 if (images.Count > 10)
                     context.AddFailure("Images", "Maximum 10 images are allowed per product.");
 
                 foreach (var image in images)
                 {
-                    if (image == null)
-                        context.AddFailure("Images", "Image cannot be null.");
-
-                    if (image!.Length == 0)
-                        context.AddFailure("Images", "Image file is empty.");
-
-                    if (image.Length > 2 * 1024 * 1024)
-                        context.AddFailure("Images", "Image size cannot exceed 2MB.");
-
-                    var allowedMimes = new[] { "image/jpeg", "image/png", "image/webp" };
-                    if (!allowedMimes.Contains(image.ContentType?.ToLower() ?? ""))
-                        context.AddFailure("Images", "Invalid image type. Only JPG, PNG and WEBP are allowed.");
+                    if (!IsValidImageFile(image))
+                        context.AddFailure("Images", "Only image files (JPEG, PNG, GIF) are allowed.");
                 }
             });
+    }
+
+    private static bool IsValidImageFile(Microsoft.AspNetCore.Http.IFormFile file)
+    {
+        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/gif" };
+        return allowedMimeTypes.Contains(file.ContentType?.ToLower());
     }
 }
 

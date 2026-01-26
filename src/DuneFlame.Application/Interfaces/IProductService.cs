@@ -8,7 +8,7 @@ public interface IProductService
     // Create
     Task<Guid> CreateAsync(CreateProductRequest request);
 
-    // Read
+    // Read - Currency is now determined by ICurrencyProvider (scoped to request)
     Task<ProductResponse> GetByIdAsync(Guid id);
     Task<ProductResponse> GetBySlugAsync(string slug);
     Task<PagedResult<ProductResponse>> GetAllAsync(
@@ -16,7 +16,17 @@ public interface IProductService
         int pageSize = 10,
         string? sortBy = null,
         string? search = null,
-        Guid? categoryId = null);
+        Guid? categoryId = null,
+        decimal? minPrice = null,
+        decimal? maxPrice = null);
+    Task<PagedResult<ProductResponse>> GetAllAdminAsync(
+        int pageNumber = 1,
+        int pageSize = 10,
+        string? sortBy = null,
+        string? search = null,
+        Guid? categoryId = null,
+        decimal? minPrice = null,
+        decimal? maxPrice = null);
 
     // Update
     Task UpdateAsync(Guid id, UpdateProductRequest request);

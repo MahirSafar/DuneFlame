@@ -19,7 +19,9 @@ public class PublicProductController(IProductService productService) : Controlle
         [FromQuery] int pageSize = 10,
         [FromQuery] string? search = null,
         [FromQuery] string? sortBy = null,
-        [FromQuery] Guid? categoryId = null)
+        [FromQuery] Guid? categoryId = null,
+        [FromQuery] decimal? minPrice = null,
+        [FromQuery] decimal? maxPrice = null)
     {
         try
         {
@@ -28,7 +30,9 @@ public class PublicProductController(IProductService productService) : Controlle
                 pageSize: pageSize,
                 sortBy: sortBy,
                 search: search,
-                categoryId: categoryId);
+                categoryId: categoryId,
+                minPrice: minPrice,
+                maxPrice: maxPrice);
 
             return Ok(result);
         }

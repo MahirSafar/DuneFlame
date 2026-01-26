@@ -11,6 +11,13 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
             .NotEmpty()
             .WithMessage("Basket ID is required.");
 
+        RuleFor(x => x.Currency)
+            .NotEmpty()
+            .WithMessage("Currency is required.")
+            .Must(x => x?.Equals("USD", StringComparison.OrdinalIgnoreCase) == true || 
+                       x?.Equals("AED", StringComparison.OrdinalIgnoreCase) == true)
+            .WithMessage("Currency must be either 'USD' or 'AED'.");
+
         RuleFor(x => x.ShippingAddress)
             .NotNull()
             .WithMessage("Shipping address is required.");

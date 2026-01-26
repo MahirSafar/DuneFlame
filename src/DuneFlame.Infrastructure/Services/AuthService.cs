@@ -103,9 +103,17 @@ public class AuthService(
             throw new AuthenticationException("User not found.");
         }
 
+        _logger.LogInformation("Attempting to refresh token for user ID: {UserId}", userId);
+
         var user = await _userManager.FindByIdAsync(userId);
 
-        if (user == null) throw new AuthenticationException("User not found.");
+        if (user == null)
+        {
+            _logger.LogError("User not found in database with ID: {UserId}", userId);
+            throw new AuthenticationException("User not found.");
+        }
+
+        _logger.LogInformation("User found: {Email}. Validating refresh token...", user.Email);
 
         // 2. Refresh token bazada varmı?
         var storedRefreshToken = await _context.RefreshTokens
@@ -113,10 +121,16 @@ public class AuthService(
             .FirstOrDefaultAsync(x => x.Token == request.RefreshToken && x.UserId == user.Id);
 
         if (storedRefreshToken == null)
+        {
+            _logger.LogWarning("Refresh token not found in database for user {UserId}. Token may have been revoked or expired.", user.Id);
             throw new AuthenticationException("Refresh token not found.");
+        }
 
         if (storedRefreshToken.User == null)
+        {
+            _logger.LogError("Stored refresh token has null User reference for UserId {UserId}. Database integrity issue.", user.Id);
             throw new AuthenticationException("Invalid refresh token state.");
+        }
 
         // 3. Check if token is active or within grace period after revocation
         var gracePeriod = TimeSpan.FromSeconds(_jwtSettings.RefreshTokenRevocationGracePeriodSeconds);

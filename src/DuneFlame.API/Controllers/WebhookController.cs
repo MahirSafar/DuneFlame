@@ -63,6 +63,12 @@ public class WebhookController(
                     await HandleChargeRefunded(stripeEvent);
                     break;
 
+                // ===== Payment Intent Created (Informational Event) =====
+                case "payment_intent.created":
+                    _logger.LogInformation("Payment intent created: {PaymentIntentId}", 
+                        ((PaymentIntent)stripeEvent.Data.Object)?.Id ?? "unknown");
+                    break;
+
                 // ===== Unhandled Events =====
                 case "payment_intent.payment_failed":
                     await HandlePaymentIntentFailed(stripeEvent);
