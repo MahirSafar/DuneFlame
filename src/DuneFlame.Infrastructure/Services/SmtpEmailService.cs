@@ -245,21 +245,23 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
         }
 
         /// <summary>
-        /// Send order paid confirmation email with order details.
+        /// Send order paid confirmation email with order details in the specified language.
         /// </summary>
-        public async Task SendOrderPaidAsync(string to, Guid orderId, decimal amount)
+        public async Task SendOrderPaidAsync(string to, Guid orderId, decimal amount, string languageCode = "en")
         {
             try
             {
+                // Get localized subject and message based on language code
+                var (subject, title, message, buttonText) = GetLocalizedOrderConfirmation(languageCode, orderId, amount);
+
                 var body = GetHtmlTemplate(
-                    "Payment Confirmed",
-                    $"Thank you for your payment! Your order #{orderId:N} totaling ${amount:F2} has been confirmed. " +
-                    "We're processing your order and will ship it soon. You'll receive a shipping confirmation email shortly.",
-                    "Track Your Order",
+                    title,
+                    message,
+                    buttonText,
                     "http://localhost:3000/orders"); // Link to orders page
 
-                await SendGenericEmailAsync(to, $"Payment Confirmed for Order #{orderId:N} - DuneFlame", body);
-                _logger?.LogInformation("SendOrderPaidAsync: Order paid email sent to {To} for OrderId {OrderId}", to, orderId);
+                await SendGenericEmailAsync(to, subject, body);
+                _logger?.LogInformation("SendOrderPaidAsync: Order paid email sent to {To} for OrderId {OrderId} in language {Language}", to, orderId, languageCode);
             }
             catch (Exception ex)
             {
@@ -267,6 +269,36 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
                 throw;
             }
         }
+
+        /// <summary>
+        /// Get localized order confirmation strings based on language code.
+        /// Supports: en (English), ar (Arabic)
+        /// Handles language codes in various formats (e.g., "en-US" -> "en", "ar-SA" -> "ar")
+        /// </summary>
+        private (string Subject, string Title, string Message, string ButtonText) GetLocalizedOrderConfirmation(string languageCode, Guid orderId, decimal amount)
+        {
+            // Extract first 2 characters to handle formats like "en-US", "ar-SA"
+            var code = languageCode?.ToLowerInvariant().Substring(0, Math.Min(2, languageCode.Length)) ?? "en";
+
+            return code switch
+            {
+                "ar" => (
+                    $"تم تأكيد الدفع للطلب #{orderId:N} - DuneFlame",
+                    "تم تأكيد الدفع",
+                    $"شكراً لك على دفعك! تم تأكيد طلبك #{orderId:N} بمبلغ ${amount:F2}. " +
+                    "نحن نقوم بمعالجة طلبك وسيتم شحنه قريباً. ستتلقى بريد إلكتروني لتأكيد الشحن قريباً.",
+                    "تتبع طلبك"
+                ),
+                _ => ( // Default to English
+                    $"Payment Confirmed for Order #{orderId:N} - DuneFlame",
+                    "Payment Confirmed",
+                    $"Thank you for your payment! Your order #{orderId:N} totaling ${amount:F2} has been confirmed. " +
+                    "We're processing your order and will ship it soon. You'll receive a shipping confirmation email shortly.",
+                    "Track Your Order"
+                )
+            };
+        }
+
 
         /// <summary>
         /// Send order shipped confirmation email with optional tracking number.

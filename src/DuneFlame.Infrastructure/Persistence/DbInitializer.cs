@@ -156,7 +156,8 @@ public static class DbInitializer
             new() { Name = "Colombia" },
             new() { Name = "Brazil" },
             new() { Name = "Kenya" },
-            new() { Name = "Costa Rica" }
+            new() { Name = "Costa Rica" },
+            new() { Name = "Malaysia" }
         };
 
         await context.Origins.AddRangeAsync(origins);
@@ -170,18 +171,59 @@ public static class DbInitializer
             return;
         }
 
-        logger.LogInformation("Seeding Categories...");
+        logger.LogInformation("Seeding Categories with translations...");
         var categories = new List<Category>
         {
-            new() { Name = "Coffee Beans", Slug = "coffee-beans" },
-            new() { Name = "Coffee Machines", Slug = "coffee-machines" },
-            new() { Name = "Cups & Mugs", Slug = "cups-and-mugs" },
-            new() { Name = "Coffee Accessories", Slug = "coffee-accessories" },
-            new() { Name = "Coffee Filters", Slug = "coffee-filters" }
+            new()
+            {
+                Slug = "coffee-beans",
+                Translations = new List<CategoryTranslation>
+                {
+                    new() { LanguageCode = "en", Name = "Coffee Beans" },
+                    new() { LanguageCode = "ar", Name = "حبوب القهوة" }
+                }
+            },
+            new()
+            {
+                Slug = "coffee-machines",
+                Translations = new List<CategoryTranslation>
+                {
+                    new() { LanguageCode = "en", Name = "Coffee Machines" },
+                    new() { LanguageCode = "ar", Name = "آلات القهوة" }
+                }
+            },
+            new()
+            {
+                Slug = "cups-and-mugs",
+                Translations = new List<CategoryTranslation>
+                {
+                    new() { LanguageCode = "en", Name = "Cups & Mugs" },
+                    new() { LanguageCode = "ar", Name = "أكواب وأباريق" }
+                }
+            },
+            new()
+            {
+                Slug = "coffee-accessories",
+                Translations = new List<CategoryTranslation>
+                {
+                    new() { LanguageCode = "en", Name = "Coffee Accessories" },
+                    new() { LanguageCode = "ar", Name = "ملحقات القهوة" }
+                }
+            },
+            new()
+            {
+                Slug = "coffee-filters",
+                Translations = new List<CategoryTranslation>
+                {
+                    new() { LanguageCode = "en", Name = "Coffee Filters" },
+                    new() { LanguageCode = "ar", Name = "مرشحات القهوة" }
+                }
+            }
         };
 
         await context.Categories.AddRangeAsync(categories);
         await context.SaveChangesAsync();
+        logger.LogInformation("Categories with translations seeded successfully.");
     }
 
     private static async Task SeedProductsAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -252,131 +294,361 @@ public static class DbInitializer
 
         var coffeeBeansCategory = categories.FirstOrDefault(c => c.Slug == "coffee-beans");
         var ethiopiaOrigin = origins.FirstOrDefault(o => o.Name == "Ethiopia");
+        var colombiaOrigin = origins.FirstOrDefault(o => o.Name == "Colombia");
+        var brazilOrigin = origins.FirstOrDefault(o => o.Name == "Brazil");
+        var malaysiaOrigin = origins.FirstOrDefault(o => o.Name == "Malaysia");
 
         if (coffeeBeansCategory == null || ethiopiaOrigin == null)
         {
-            logger.LogWarning("Coffee Beans category or Ethiopia origin not found.");
+            logger.LogWarning("Coffee Beans category or required origins not found.");
             return;
         }
 
-        // 5. Create Sample Product: Ethiopian Yirgacheffe
-        var ethiopianProduct = new Product
+        var products = new List<Product>();
+
+        // 5. Create Premium Products with Bilingual Translations
+        // Product 1: Brazil Lencois (BLRB)
+        if (brazilOrigin != null)
         {
-            Name = "Ethiopian Yirgacheffe",
-            Slug = "ethiopian-yirgacheffe",
-            Description = "Highest quality Ethiopian coffee with fruity aromas. This coffee is distinguished by floral and berry notes with a subtle acidity.",
-            StockInKg = 50.0m, // Central Silo Stock
-            IsActive = true,
-            CategoryId = coffeeBeansCategory.Id,
-            OriginId = ethiopiaOrigin.Id
-        };
+            var brazilLencoesProduct = new Product
+            {
+                Slug = "brazil-lencois",
+                StockInKg = 50.0m,
+                IsActive = true,
+                CategoryId = coffeeBeansCategory.Id,
+                OriginId = brazilOrigin.Id,
+                Translations = new List<ProductTranslation>
+                {
+                    new()
+                    {
+                        LanguageCode = "en",
+                        Name = "Brazil Lencois",
+                        Description = "Premium Brazilian Lencois Santos Dahab with Red Catuai variety. Naturally processed at 1300m altitude with a cupping score of 86. Perfect for both espresso and filter brewing."
+                    },
+                    new()
+                    {
+                        LanguageCode = "ar",
+                        Name = "البرازيل لينكوس",
+                        Description = "برازيل لينكوس سانتوس دهب ممتاز مع صنف الكاتواي الأحمر. معالج بشكل طبيعي على ارتفاع 1300 متر بدرجة تذوق 86. مثالي للإسبريسو والقهوة المفلترة."
+                    }
+                },
+                FlavourNotes = new List<FlavourNote>
+                {
+                    new()
+                    {
+                        Name = "Chocolate",
+                        DisplayOrder = 1,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Chocolate" },
+                            new() { LanguageCode = "ar", Name = "شوكولاتة" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Walnut",
+                        DisplayOrder = 2,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Walnut" },
+                            new() { LanguageCode = "ar", Name = "جوز" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Cookies",
+                        DisplayOrder = 3,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Cookies" },
+                            new() { LanguageCode = "ar", Name = "البسكويت" }
+                        }
+                    }
+                }
+            };
+            if (roastMedium != null) brazilLencoesProduct.RoastLevels.Add(roastMedium);
+            if (grindEspresso != null) brazilLencoesProduct.GrindTypes.Add(grindEspresso);
+            if (grindFilter != null) brazilLencoesProduct.GrindTypes.Add(grindFilter);
+            products.Add(brazilLencoesProduct);
+        }
 
-        // Add M2M relationships for RoastLevels
-        if (roastMedium != null) ethiopianProduct.RoastLevels.Add(roastMedium);
-        if (roastDark != null) ethiopianProduct.RoastLevels.Add(roastDark);
+        // Product 2: Ethiopia Guji Hamebla (EGHRB)
+        if (ethiopiaOrigin != null)
+        {
+            var ethiopiaGujiProduct = new Product
+            {
+                Slug = "ethiopia-guji-hamebla",
+                StockInKg = 40.0m,
+                IsActive = true,
+                CategoryId = coffeeBeansCategory.Id,
+                OriginId = ethiopiaOrigin.Id,
+                Translations = new List<ProductTranslation>
+                {
+                    new()
+                    {
+                        LanguageCode = "en",
+                        Name = "Ethiopia Guji Hamebla",
+                        Description = "Exceptional Ethiopian Heirloom variety from Guji Hamebla. Washed process at 1700-1800m altitude with impressive cupping score of 87.25. Complex floral and fruity notes with delicate peach undertones."
+                    },
+                    new()
+                    {
+                        LanguageCode = "ar",
+                        Name = "إثيوبيا جوجي حمبلا",
+                        Description = "صنف الحبشي الاستثنائي من جوجي حمبلا. عملية مغسولة على ارتفاع 1700-1800 متر برصيد تذوق 87.25 مثير للإعجاب. نكهات زهرية وفاكهية معقدة مع لمسات خوخ دقيقة."
+                    }
+                },
+                FlavourNotes = new List<FlavourNote>
+                {
+                    new()
+                    {
+                        Name = "Jasmine",
+                        DisplayOrder = 1,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Jasmine" },
+                            new() { LanguageCode = "ar", Name = "ياسمين" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Floral",
+                        DisplayOrder = 2,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Floral" },
+                            new() { LanguageCode = "ar", Name = "زهري" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Bergamot",
+                        DisplayOrder = 3,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Bergamot" },
+                            new() { LanguageCode = "ar", Name = "برغموت" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Peach",
+                        DisplayOrder = 4,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Peach" },
+                            new() { LanguageCode = "ar", Name = "خوخ" }
+                        }
+                    }
+                }
+            };
+            if (roastLight != null) ethiopiaGujiProduct.RoastLevels.Add(roastLight);
+            if (grindEspresso != null) ethiopiaGujiProduct.GrindTypes.Add(grindEspresso);
+            if (grindFilter != null) ethiopiaGujiProduct.GrindTypes.Add(grindFilter);
+            products.Add(ethiopiaGujiProduct);
+        }
 
-        // Add M2M relationships for GrindTypes
-        if (grindWholeBean != null) ethiopianProduct.GrindTypes.Add(grindWholeBean);
-        if (grindEspresso != null) ethiopianProduct.GrindTypes.Add(grindEspresso);
+        // Product 3: Puro Localo (PLRB)
+        if (malaysiaOrigin != null)
+        {
+            var puroLocaloProduct = new Product
+            {
+                Slug = "puro-localo",
+                StockInKg = 35.0m,
+                IsActive = true,
+                CategoryId = coffeeBeansCategory.Id,
+                OriginId = malaysiaOrigin.Id,
+                Translations = new List<ProductTranslation>
+                {
+                    new()
+                    {
+                        LanguageCode = "en",
+                        Name = "Puro Localo",
+                        Description = "Unique Malaysian Liberica variety from Puro Localo. Infused processing at 1200m altitude achieving exceptional cupping score of 89. Distinctive smoky and woody notes with caramel sweetness."
+                    },
+                    new()
+                    {
+                        LanguageCode = "ar",
+                        Name = "بورو لوكالو",
+                        Description = "صنف لايبيريكا الماليزي الفريد من بورو لوكالو. معالجة معطرة على ارتفاع 1200 متر بحصول على درجة تذوق استثنائية 89. نكهات دخانية وخشبية مميزة مع حلاوة الكراميل."
+                    }
+                },
+                FlavourNotes = new List<FlavourNote>
+                {
+                    new()
+                    {
+                        Name = "Sweet Tobacco",
+                        DisplayOrder = 1,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Sweet Tobacco" },
+                            new() { LanguageCode = "ar", Name = "التبغ الحلو" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Dark Caramel",
+                        DisplayOrder = 2,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Dark Caramel" },
+                            new() { LanguageCode = "ar", Name = "كراميل داكن" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Woody spice",
+                        DisplayOrder = 3,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Woody spice" },
+                            new() { LanguageCode = "ar", Name = "بهار خشبي" }
+                        }
+                    }
+                }
+            };
+            if (roastMedium != null) puroLocaloProduct.RoastLevels.Add(roastMedium);
+            if (grindFilter != null) puroLocaloProduct.GrindTypes.Add(grindFilter);
+            products.Add(puroLocaloProduct);
+        }
 
-        await context.Products.AddAsync(ethiopianProduct);
+        // Product 4: Tutti Frutti (TFRB)
+        if (colombiaOrigin != null)
+        {
+            var tuttiFruttiProduct = new Product
+            {
+                Slug = "tutti-frutti",
+                StockInKg = 42.0m,
+                IsActive = true,
+                CategoryId = coffeeBeansCategory.Id,
+                OriginId = colombiaOrigin.Id,
+                Translations = new List<ProductTranslation>
+                {
+                    new()
+                    {
+                        LanguageCode = "en",
+                        Name = "Tutti Frutti",
+                        Description = "Colombian Huila Purple Caturra at 1800-2000m altitude. Infused processing delivering an exceptional cupping score of 90. Vibrant citrus and tropical fruit notes with orange blossom aromatics."
+                    },
+                    new()
+                    {
+                        LanguageCode = "ar",
+                        Name = "توتي فروتي",
+                        Description = "كولومبيا هويلا بربل كاتورا على ارتفاع 1800-2000 متر. معالجة معطرة تقدم درجة تذوق استثنائية 90. نكهات حمضيات نابضة بالحياة وفاكهة استوائية مع عطريات زهر البرتقال."
+                    }
+                },
+                FlavourNotes = new List<FlavourNote>
+                {
+                    new()
+                    {
+                        Name = "Orange Blossom",
+                        DisplayOrder = 1,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Orange Blossom" },
+                            new() { LanguageCode = "ar", Name = "زهر البرتقال" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Mandarin",
+                        DisplayOrder = 2,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Mandarin" },
+                            new() { LanguageCode = "ar", Name = "يوسفي" }
+                        }
+                    },
+                    new()
+                    {
+                        Name = "Tropical Fruit",
+                        DisplayOrder = 3,
+                        Translations = new List<FlavourNoteTranslation>
+                        {
+                            new() { LanguageCode = "en", Name = "Tropical Fruit" },
+                            new() { LanguageCode = "ar", Name = "فاكهة استوائية" }
+                        }
+                    }
+                }
+            };
+            if (roastLight != null) tuttiFruttiProduct.RoastLevels.Add(roastLight);
+            if (grindFilter != null) tuttiFruttiProduct.GrindTypes.Add(grindFilter);
+            products.Add(tuttiFruttiProduct);
+        }
+
+        await context.Products.AddRangeAsync(products);
         await context.SaveChangesAsync();
 
-        // 6. Create ProductPrices for Ethiopian Yirgacheffe (Multi-Currency Support)
+        // 6. Create ProductPrices for all products (Multi-Currency Support)
         var prices = new List<ProductPrice>();
 
-        // USD Prices
-        if (weight250g != null)
+        foreach (var product in products)
         {
-            prices.Add(new ProductPrice
+            // USD Prices
+            if (weight250g != null)
             {
-                ProductId = ethiopianProduct.Id,
-                ProductWeightId = weight250g.Id,
-                Price = 15.00m,
-                CurrencyCode = Currency.USD
-            });
-        }
+                prices.Add(new ProductPrice
+                {
+                    ProductId = product.Id,
+                    ProductWeightId = weight250g.Id,
+                    Price = 15.00m,
+                    CurrencyCode = Currency.USD
+                });
+            }
 
-        if (weight1kg != null)
-        {
-            prices.Add(new ProductPrice
+            if (weight1kg != null)
             {
-                ProductId = ethiopianProduct.Id,
-                ProductWeightId = weight1kg.Id,
-                Price = 55.00m,
-                CurrencyCode = Currency.USD
-            });
-        }
+                prices.Add(new ProductPrice
+                {
+                    ProductId = product.Id,
+                    ProductWeightId = weight1kg.Id,
+                    Price = 55.00m,
+                    CurrencyCode = Currency.USD
+                });
+            }
 
-        // AED Prices (approximately 3.67x USD rate)
-        if (weight250g != null)
-        {
-            prices.Add(new ProductPrice
+            // AED Prices (approximately 3.67x USD rate)
+            if (weight250g != null)
             {
-                ProductId = ethiopianProduct.Id,
-                ProductWeightId = weight250g.Id,
-                Price = 55.05m,
-                CurrencyCode = Currency.AED
-            });
-        }
+                prices.Add(new ProductPrice
+                {
+                    ProductId = product.Id,
+                    ProductWeightId = weight250g.Id,
+                    Price = 55.05m,
+                    CurrencyCode = Currency.AED
+                });
+            }
 
-        if (weight1kg != null)
-        {
-            prices.Add(new ProductPrice
+            if (weight1kg != null)
             {
-                ProductId = ethiopianProduct.Id,
-                ProductWeightId = weight1kg.Id,
-                Price = 201.85m,
-                CurrencyCode = Currency.AED
-            });
+                prices.Add(new ProductPrice
+                {
+                    ProductId = product.Id,
+                    ProductWeightId = weight1kg.Id,
+                    Price = 201.85m,
+                    CurrencyCode = Currency.AED
+                });
+            }
         }
 
         await context.ProductPrices.AddRangeAsync(prices);
         await context.SaveChangesAsync();
 
         logger.LogInformation("Silo v2 product seeding completed successfully with multi-currency support.");
-        logger.LogInformation("Created ProductPrices for: USD, AED (2 currencies x 2 weights = 4 price records).");
-    }
+        logger.LogInformation($"Created {products.Count} products with bilingual translations (EN + AR).");
+        logger.LogInformation($"Created {prices.Count} product prices for: USD, AED (2 currencies x 2 weights = 4 prices per product).");
+        logger.LogInformation("✓ Added 4 premium coffee products: BLRB, EGHRB, PLRB, TFRB with detailed flavour notes and multi-language translations");
+        logger.LogInformation("✓ FlavourNotes include: Chocolate, Walnut, Cookies (Brazil), Jasmine, Floral, Bergamot, Peach (Ethiopia), Sweet Tobacco, Dark Caramel, Woody spice (Malaysia), Orange Blossom, Mandarin, Tropical Fruit (Colombia)");
+        }
+
 
     private static async Task SeedCmsContentAsync(AppDbContext context, ILogger<AppDbContext> logger)
     {
-        if (await context.Sliders.AnyAsync() || await context.AboutSections.AnyAsync())
+        if (await context.AboutSections.AnyAsync())
         {
             return;
         }
 
         logger.LogInformation("Seeding CMS Content...");
-
-        // Seed Sliders
-        var sliders = new List<Slider>
-        {
-            new() {
-                Title = "Fresh Coffee Beans",
-                Subtitle = "The finest coffee beans from around the world delivered directly to you",
-                ImageUrl = "https://images.unsplash.com/photo-1559056199-641a0ac8b3f7?w=1200&q=80",
-                TargetUrl = "/products?category=coffee-beans",
-                Order = 1,
-                IsActive = true
-            },
-            new() {
-                Title = "Professional Coffee Machines",
-                Subtitle = "Brew barista-quality coffee in your own home",
-                ImageUrl = "https://images.unsplash.com/photo-1517668808822-9ebb02ae2a0e?w=1200&q=80",
-                TargetUrl = "/products?category=coffee-machines",
-                Order = 2,
-                IsActive = true
-            },
-            new() {
-                Title = "Accessories & Filters",
-                Subtitle = "Enhance your coffee brewing experience",
-                ImageUrl = "https://images.unsplash.com/photo-1559056199-641a0ac8b3f7?w=1200&q=80",
-                TargetUrl = "/products?category=coffee-accessories",
-                Order = 3,
-                IsActive = true
-            }
-        };
-
-        await context.Sliders.AddRangeAsync(sliders);
 
         // Seed About Sections
         var aboutSections = new List<AboutSection>

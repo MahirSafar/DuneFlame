@@ -58,7 +58,7 @@ public class LocalFileService(IWebHostEnvironment environment) : IFileService
         if (string.IsNullOrEmpty(filePath)) return;
 
         // URL-dən fiziki yola çevirmə
-        // /uploads/products/image.jpg -> C:\...\wwwroot\uploads\products\image.jpg
+        // /api/v1/uploads/sliders/image.jpg -> C:\...\wwwroot\uploads\sliders\image.jpg
         var fullPath = Path.Combine(_environment.WebRootPath, filePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
 
         if (File.Exists(fullPath))

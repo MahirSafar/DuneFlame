@@ -11,107 +11,10 @@ namespace DuneFlame.API.Controllers;
 [Authorize(Roles = "Admin")]
 public class AdminContentController(
     IAdminContentService adminContentService,
-    IValidator<CreateSliderRequest> sliderValidator,
     IValidator<CreateAboutSectionRequest> aboutSectionValidator) : ControllerBase
 {
     private readonly IAdminContentService _adminContentService = adminContentService;
-    private readonly IValidator<CreateSliderRequest> _sliderValidator = sliderValidator;
     private readonly IValidator<CreateAboutSectionRequest> _aboutSectionValidator = aboutSectionValidator;
-
-    // Slider endpoints
-    [HttpGet("sliders")]
-    public async Task<IActionResult> GetAllSliders()
-    {
-        try
-        {
-            var sliders = await _adminContentService.GetAllSlidersAsync();
-            return Ok(sliders);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    [HttpGet("sliders/{id:guid}")]
-    public async Task<IActionResult> GetSliderById(Guid id)
-    {
-        try
-        {
-            var slider = await _adminContentService.GetSliderByIdAsync(id);
-            return Ok(slider);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    [HttpPost("sliders")]
-    public async Task<IActionResult> CreateSlider([FromBody] CreateSliderRequest request)
-    {
-        var validationResult = await _sliderValidator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            return BadRequest(validationResult.Errors);
-        }
-
-        try
-        {
-            var sliderId = await _adminContentService.CreateSliderAsync(request);
-            return CreatedAtAction(nameof(GetSliderById), new { id = sliderId }, new { id = sliderId });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    [HttpPut("sliders/{id:guid}")]
-    public async Task<IActionResult> UpdateSlider(Guid id, [FromBody] CreateSliderRequest request)
-    {
-        var validationResult = await _sliderValidator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            return BadRequest(validationResult.Errors);
-        }
-
-        try
-        {
-            await _adminContentService.UpdateSliderAsync(id, request);
-            return Ok(new { message = "Slider updated successfully" });
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    [HttpDelete("sliders/{id:guid}")]
-    public async Task<IActionResult> DeleteSlider(Guid id)
-    {
-        try
-        {
-            await _adminContentService.DeleteSliderAsync(id);
-            return Ok(new { message = "Slider deleted successfully" });
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
 
     // About Section endpoints
     [HttpGet("about-sections")]

@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
@@ -122,6 +123,7 @@ builder.Services.AddScoped<IAdminContentService, AdminContentService>();
 builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
 builder.Services.AddScoped<IShippingService, ShippingService>();
+builder.Services.AddScoped<ISliderService, SliderService>();
 
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 
@@ -156,10 +158,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("NextJsPolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:3000") 
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" })
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
     });
 });
 
@@ -174,6 +176,8 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 builder.Services.AddOpenApi();
@@ -199,8 +203,23 @@ var app = builder.Build();
 // Database Seeding
 if (!app.Environment.IsEnvironment("Testing"))
 {
-    using var scope = app.Services.CreateScope();
-    await DbInitializer.InitializeAsync(scope.ServiceProvider);
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        await DbInitializer.InitializeAsync(scope.ServiceProvider);
+        Log.Information("Database initialization completed successfully.");
+    }
+    catch (Exception ex)
+    {
+        Log.Fatal(ex, "Database initialization failed. The application may not have access to the database.");
+        // In cloud environments, we allow the app to continue rather than crash immediately
+        // This prevents cascading failures in environments like Google Cloud Run
+        // where containers restart frequently during deployment
+        if (!app.Environment.IsProduction())
+        {
+            throw; // Re-throw in development to catch issues early
+        }
+    }
 }
 
 app.UseSerilogRequestLogging();
@@ -215,6 +234,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+// Configure static files for uploads directory
+// This allows serving uploaded images (sliders, products, etc.) from the /api/v1/uploads endpoint
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads")),
+    RequestPath = "/api/v1/uploads"
+});
 
 // CORS Auth-dan qabaq gəlməlidir
 app.UseCors("NextJsPolicy");

@@ -9,5 +9,6 @@ public record CreateOrderRequest(
     AddressDto ShippingAddress,
     string Currency,
     string? PaymentIntentId = null,
-    bool UsePoints = false
+    bool UsePoints = false,
+    string LanguageCode = "en"
 );

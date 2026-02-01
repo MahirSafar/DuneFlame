@@ -179,7 +179,8 @@ public class OrderService(
                 PointsRedeemed = 0,
                 PointsEarned = 0,
                 PaymentIntentId = paymentIntentId,
-                CurrencyCode = Enum.Parse<Currency>(requestCurrency, ignoreCase: true)
+                CurrencyCode = Enum.Parse<Currency>(requestCurrency, ignoreCase: true),
+                LanguageCode = request.LanguageCode
             };
 
             decimal subtotal = 0;
@@ -191,9 +192,13 @@ public class OrderService(
                 // Get the product and its weight from the basket item's ProductPrice
                 var originalProductPrice = await _context.ProductPrices
                     .Include(pp => pp.Product)
+                    .ThenInclude(p => p.Translations)
                     .Include(pp => pp.Weight)
                     .FirstOrDefaultAsync(pp => pp.Id == basketItem.ProductPriceId) ?? throw new NotFoundException($"ProductPrice with ID {basketItem.ProductPriceId} not found");
                 var product = originalProductPrice.Product ?? throw new NotFoundException($"Product for ProductPrice {basketItem.ProductPriceId} not found");
+
+                // Get product name from translation
+                var productName = product.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name ?? "Unknown";
 
                 // Now fetch the price for the requested currency using the same weight
                 var requestedCurrencyEnum = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
@@ -201,7 +206,7 @@ public class OrderService(
                     .Where(pp => pp.ProductId == product.Id && 
                                 pp.ProductWeightId == originalProductPrice.ProductWeightId &&
                                 pp.CurrencyCode == requestedCurrencyEnum)
-                    .FirstOrDefaultAsync() ?? throw new NotFoundException($"Price not found for product '{product.Name}' in currency {requestCurrency}");
+                    .FirstOrDefaultAsync() ?? throw new NotFoundException($"Price not found for product '{productName}' in currency {requestCurrency}");
 
                 // Calculate total weight in KG: Quantity * (WeightGrams / 1000)
                 decimal totalWeightKg = basketItem.Quantity * (originalProductPrice.Weight!.Grams / 1000m);
@@ -210,7 +215,7 @@ public class OrderService(
                 if (product.StockInKg < totalWeightKg)
                 {
                     throw new BadRequestException(
-                        $"Insufficient stock for product '{product.Name}' (Weight: {originalProductPrice.Weight.Label}). " +
+                        $"Insufficient stock for product '{productName}' (Weight: {originalProductPrice.Weight.Label}). " +
                         $"Available: {product.StockInKg}kg, Requested: {totalWeightKg}kg");
                 }
 
@@ -223,7 +228,7 @@ public class OrderService(
                     var orderItem = new OrderItem
                     {
                         ProductPriceId = requestedCurrencyPrice.Id,
-                        ProductName = product.Name,
+                        ProductName = productName,
                         UnitPrice = requestedCurrencyPrice.Price,
                         Quantity = basketItem.Quantity,
                         CurrencyCode = requestedCurrencyPrice.CurrencyCode

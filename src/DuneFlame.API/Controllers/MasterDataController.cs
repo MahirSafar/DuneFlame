@@ -3,6 +3,7 @@ using DuneFlame.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DuneFlame.API.Controllers;
 
@@ -14,9 +15,10 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/master-data")]
 [ApiController]
 [AllowAnonymous]
-public class MasterDataController(AppDbContext context) : ControllerBase
+public class MasterDataController(AppDbContext context, ILogger<MasterDataController> logger) : ControllerBase
 {
     private readonly AppDbContext _context = context;
+    private readonly ILogger<MasterDataController> _logger = logger;
 
     /// <summary>
     /// Get all available product weights for weight selection in product forms.
@@ -90,23 +92,34 @@ public class MasterDataController(AppDbContext context) : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Get all available product categories for category selection in product forms.
-    /// </summary>
-    /// <returns>List of categories (Id, Name, Slug)</returns>
     [HttpGet("categories")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")] // Cache dilə görə dəyişir
     public async Task<ActionResult<List<CategoryDto>>> GetCategories()
     {
         try
         {
+            // 1. Header-dən dili oxuyuruq (Frontend-dən gələn 'Accept-Language')
+            var header = Request.Headers["Accept-Language"].ToString();
+            // Sadələşdirmə: 'ar-SA' gəlsə də, 'ar' götürürük. Yoxdursa 'en'.
+            var lang = !string.IsNullOrWhiteSpace(header) && header.StartsWith("ar") ? "ar" : "en";
+
             var categories = await _context.Categories
                 .AsNoTracking()
-                .OrderBy(c => c.Name)
-                .Select(c => new CategoryDto(c.Id, c.Name, c.Slug))
+                .Include(c => c.Translations)
+                .OrderBy(c => c.Slug)
                 .ToListAsync();
 
-            return Ok(categories);
+            var categoryDtos = categories.Select(c => new CategoryDto(
+                c.Id,
+                // 2. Dinamik dil seçimi:
+                // Əvvəl istifadəçinin dilini yoxla, tapmasan İngiliscəni, onu da tapmasan "Unknown"
+                c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name 
+                ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
+                ?? "Unknown",
+                c.Slug))
+                .ToList();
+
+            return Ok(categoryDtos);
         }
         catch (Exception ex)
         {
@@ -138,17 +151,17 @@ public class MasterDataController(AppDbContext context) : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Get all master data at once for efficient initial page load.
-    /// Useful when the frontend needs multiple master data lists.
-    /// </summary>
-    /// <returns>Combined master data object</returns>
     [HttpGet("all")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")] // Cache dilə görə dəyişir
     public async Task<ActionResult<MasterDataCollectionDto>> GetAllMasterData()
     {
         try
         {
+            // 1. Header-dən dili oxuyuruq (Frontend-dən gələn 'Accept-Language')
+            var header = Request.Headers["Accept-Language"].ToString();
+            // Sadələşdirmə: 'ar-SA' gəlsə də, 'ar' götürürük. Yoxdursa 'en'.
+            var lang = !string.IsNullOrWhiteSpace(header) && header.StartsWith("ar") ? "ar" : "en";
+
             var weights = await _context.ProductWeights
                 .AsNoTracking()
                 .OrderBy(w => w.Grams)
@@ -169,9 +182,19 @@ public class MasterDataController(AppDbContext context) : ControllerBase
 
             var categories = await _context.Categories
                 .AsNoTracking()
-                .OrderBy(c => c.Name)
-                .Select(c => new CategoryDto(c.Id, c.Name, c.Slug))
+                .Include(c => c.Translations)
+                .OrderBy(c => c.Slug)
                 .ToListAsync();
+
+            var categoryDtos = categories.Select(c => new CategoryDto(
+                c.Id,
+                // 2. Dinamik dil seçimi:
+                // Əvvəl istifadəçinin dilini yoxla, tapmasan İngiliscəni, onu da tapmasan "Unknown"
+                c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name 
+                ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
+                ?? "Unknown",
+                c.Slug))
+                .ToList();
 
             var origins = await _context.Origins
                 .AsNoTracking()
@@ -180,21 +203,22 @@ public class MasterDataController(AppDbContext context) : ControllerBase
                 .ToListAsync();
 
             var masterData = new MasterDataCollectionDto(
-                Weights: weights,
-                RoastLevels: roastLevels,
-                GrindTypes: grindTypes,
-                Categories: categories,
-                Origins: origins
-            );
+                                Weights: weights,
+                                RoastLevels: roastLevels,
+                                GrindTypes: grindTypes,
+                                Categories: categoryDtos,
+                                Origins: origins
+                            );
 
-            return Ok(masterData);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-}
+                            return Ok(masterData);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error fetching master data");
+                            return BadRequest(new { message = ex.Message });
+                        }
+                    }
+                }
 
 /// <summary>
 /// DTO for ProductWeight master data

@@ -228,10 +228,6 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasColumnType("text");
@@ -242,6 +238,39 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.CategoryTranslation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId", "LanguageCode")
+                        .IsUnique();
+
+                    b.ToTable("CategoryTranslations");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.City", b =>
@@ -383,6 +412,71 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.ToTable("ExternalLogins");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.FlavourNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("FlavourNotes");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.FlavourNoteTranslation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FlavourNoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlavourNoteId", "LanguageCode")
+                        .IsUnique();
+
+                    b.ToTable("FlavourNoteTranslations");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.GrindType", b =>
                 {
                     b.Property<Guid>("Id")
@@ -455,6 +549,10 @@ namespace DuneFlame.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text")
                         .HasDefaultValue("USD");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("PaymentIntentId")
                         .HasColumnType("text");
@@ -653,16 +751,8 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<Guid?>("OriginId")
                         .HasColumnType("uuid");
@@ -756,6 +846,43 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("ProductPrices");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductTranslation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId", "LanguageCode")
+                        .IsUnique();
+
+                    b.ToTable("ProductTranslations");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductWeight", b =>
@@ -953,22 +1080,14 @@ namespace DuneFlame.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<int>("Order")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Subtitle")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("TargetUrl")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -976,6 +1095,47 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Sliders");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.SliderTranslation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ButtonText")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<Guid>("SliderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Subtitle")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SliderId", "LanguageCode")
+                        .IsUnique();
+
+                    b.ToTable("SliderTranslations");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.UserProfile", b =>
@@ -1222,6 +1382,17 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("RoastLevel");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.CategoryTranslation", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Category", "Category")
+                        .WithMany("Translations")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.City", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.Country", "Country")
@@ -1242,6 +1413,28 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.FlavourNote", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
+                        .WithMany("FlavourNotes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.FlavourNoteTranslation", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.FlavourNote", "FlavourNote")
+                        .WithMany("Translations")
+                        .HasForeignKey("FlavourNoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FlavourNote");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Order", b =>
@@ -1344,6 +1537,17 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("Weight");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductTranslation", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
+                        .WithMany("Translations")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.ApplicationUser", "User")
@@ -1386,6 +1590,17 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Country");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.SliderTranslation", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Slider", "Slider")
+                        .WithMany("Translations")
+                        .HasForeignKey("SliderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Slider");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.UserProfile", b =>
@@ -1503,6 +1718,8 @@ namespace DuneFlame.Infrastructure.Migrations
             modelBuilder.Entity("DuneFlame.Domain.Entities.Category", b =>
                 {
                     b.Navigation("Products");
+
+                    b.Navigation("Translations");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Country", b =>
@@ -1510,6 +1727,11 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("Cities");
 
                     b.Navigation("ShippingRates");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.FlavourNote", b =>
+                {
+                    b.Navigation("Translations");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Order", b =>
@@ -1526,9 +1748,13 @@ namespace DuneFlame.Infrastructure.Migrations
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.Product", b =>
                 {
+                    b.Navigation("FlavourNotes");
+
                     b.Navigation("Images");
 
                     b.Navigation("Prices");
+
+                    b.Navigation("Translations");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductWeight", b =>
@@ -1539,6 +1765,11 @@ namespace DuneFlame.Infrastructure.Migrations
             modelBuilder.Entity("DuneFlame.Domain.Entities.RewardWallet", b =>
                 {
                     b.Navigation("Transactions");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.Slider", b =>
+                {
+                    b.Navigation("Translations");
                 });
 #pragma warning restore 612, 618
         }

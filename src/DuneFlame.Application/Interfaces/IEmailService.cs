@@ -9,7 +9,7 @@ public interface IEmailService
     Task SendNewsletterVerificationAsync(string to, string token);
     Task SendAdminContactAlertAsync(ContactMessage message);
     Task SendGenericEmailAsync(string to, string subject, string body);
-    Task SendOrderPaidAsync(string to, Guid orderId, decimal amount);
+    Task SendOrderPaidAsync(string to, Guid orderId, decimal amount, string languageCode = "en");
     Task SendOrderShippedAsync(string to, Guid orderId, string trackingNumber = "");
     Task SendOrderDeliveredAsync(string to, Guid orderId);
     Task SendOrderCancelledAsync(string to, Guid orderId, decimal refundAmount);

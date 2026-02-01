@@ -77,7 +77,8 @@ public class AdminDashboardService(
             var recentProducts = await _context.Products
                 .OrderByDescending(p => p.CreatedAt)
                 .Take(5)
-                .Select(p => new { p.Id, p.CreatedAt, p.Name })
+                .Include(p => p.Translations)
+                .Select(p => new { p.Id, p.CreatedAt, Translation = p.Translations.FirstOrDefault(t => t.LanguageCode == "en") })
                 .ToListAsync();
 
             var recentActivities = new List<DashboardActivityDto>();
@@ -97,11 +98,12 @@ public class AdminDashboardService(
             // Map products to activities
             foreach (var product in recentProducts)
             {
+                var productName = product.Translation?.Name ?? "Unknown";
                 recentActivities.Add(new DashboardActivityDto
                 {
                     Id = product.Id,
                     Type = "Product",
-                    Message = $"New product added: {product.Name}",
+                    Message = $"New product added: {productName}",
                     Time = product.CreatedAt
                 });
             }

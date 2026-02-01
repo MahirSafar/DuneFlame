@@ -22,6 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\DuneFlame.API\DuneFlame.API.csproj" />
+    <ProjectReference Include="..\..\src\DuneFlame.Application\DuneFlame.Application.csproj" />
+    <ProjectReference Include="..\..\src\DuneFlame.Domain\DuneFlame.Domain.csproj" />
     <ProjectReference Include="..\..\src\DuneFlame.Infrastructure\DuneFlame.Infrastructure.csproj" />
   </ItemGroup>
 

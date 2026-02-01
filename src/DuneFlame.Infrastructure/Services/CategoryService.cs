@@ -32,9 +32,15 @@ public class CategoryService(
 
         var category = new Category
         {
-            Name = request.Name,
             Slug = request.Slug
         };
+
+        // Add default English translation
+        category.Translations.Add(new CategoryTranslation
+        {
+            LanguageCode = "en",
+            Name = request.Name
+        });
 
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
@@ -50,6 +56,7 @@ public class CategoryService(
     {
         var category = await _context.Categories
             .Include(c => c.Products)
+            .Include(c => c.Translations)
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)
@@ -73,6 +80,7 @@ public class CategoryService(
             // Get from database
             var categories = await _context.Categories
                 .Include(c => c.Products)
+                .Include(c => c.Translations)
                 .ToListAsync();
 
             var categoryResponses = categories.Select(MapToResponse).ToList();
@@ -97,6 +105,7 @@ public class CategoryService(
     public async Task UpdateAsync(Guid id, CreateCategoryRequest request)
     {
         var category = await _context.Categories
+            .Include(c => c.Translations)
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)
@@ -112,7 +121,13 @@ public class CategoryService(
                 throw new InvalidOperationException("Category with this slug already exists.");
         }
 
-        category.Name = request.Name;
+        // Update translation for English
+        var enTranslation = category.Translations.FirstOrDefault(t => t.LanguageCode == "en");
+        if (enTranslation != null)
+        {
+            enTranslation.Name = request.Name;
+        }
+
         category.Slug = request.Slug;
         category.UpdatedAt = DateTime.UtcNow;
 
@@ -146,9 +161,16 @@ public class CategoryService(
 
     private static CategoryResponse MapToResponse(Category category)
     {
+        // Get English translation with fallback
+        var translation = category.Translations
+            .FirstOrDefault(t => t.LanguageCode == "en")
+            ?? category.Translations.FirstOrDefault();
+
+        var name = translation?.Name ?? "Unknown";
+
         return new CategoryResponse(
             Id: category.Id,
-            Name: category.Name,
+            Name: name,
             Slug: category.Slug,
             ProductCount: category.Products.Count,
             CreatedAt: category.CreatedAt,

@@ -15,6 +15,7 @@ public class Order : BaseEntity
     public decimal PointsRedeemed { get; set; } = 0;
     public decimal PointsEarned { get; set; } = 0;
     public string? PaymentIntentId { get; set; }
+    public string LanguageCode { get; set; } = "en";
 
     /// <summary>
     /// Concurrency control: auto-incremented by database on every update.

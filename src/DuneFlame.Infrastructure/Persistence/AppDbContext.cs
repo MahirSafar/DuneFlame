@@ -16,14 +16,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<NewsletterSubscription> NewsletterSubscriptions { get; set; }
     public DbSet<ContactMessage> ContactMessages { get; set; }
     public DbSet<Product> Products { get; set; }
+    public DbSet<ProductTranslation> ProductTranslations { get; set; }
+    public DbSet<FlavourNote> FlavourNotes { get; set; }
+    public DbSet<FlavourNoteTranslation> FlavourNoteTranslations { get; set; }
     public DbSet<Category> Categories { get; set; }
+    public DbSet<CategoryTranslation> CategoryTranslations { get; set; }
     public DbSet<Origin> Origins { get; set; }
     public DbSet<ProductImage> ProductImages { get; set; }
     public DbSet<ProductWeight> ProductWeights { get; set; }
     public DbSet<ProductPrice> ProductPrices { get; set; }
     public DbSet<RoastLevelEntity> RoastLevels { get; set; }
     public DbSet<GrindType> GrindTypes { get; set; }
-    public DbSet<Slider> Sliders { get; set; }
     public DbSet<AboutSection> AboutSections { get; set; }
     public DbSet<Cart> Carts { get; set; }
     public DbSet<CartItem> CartItems { get; set; }
@@ -35,6 +38,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Country> Countries { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<ShippingRate> ShippingRates { get; set; }
+    public DbSet<Slider> Sliders { get; set; }
+    public DbSet<SliderTranslation> SliderTranslations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -104,12 +109,80 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(p => p.OriginId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // Product - Translations Relationship (1-to-Many)
+        modelBuilder.Entity<ProductTranslation>()
+            .HasOne(pt => pt.Product)
+            .WithMany(p => p.Translations)
+            .HasForeignKey(pt => pt.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // ProductTranslation Configurations
+        modelBuilder.Entity<ProductTranslation>()
+            .Property(pt => pt.LanguageCode)
+            .IsRequired()
+            .HasMaxLength(10);
+
+        modelBuilder.Entity<ProductTranslation>()
+            .Property(pt => pt.Name)
+            .IsRequired()
+            .HasMaxLength(255);
+
+        modelBuilder.Entity<ProductTranslation>()
+            .Property(pt => pt.Description)
+            .IsRequired()
+            .HasColumnType("text");
+
+        // Unique constraint: one translation per product per language
+        modelBuilder.Entity<ProductTranslation>()
+            .HasIndex(pt => new { pt.ProductId, pt.LanguageCode })
+            .IsUnique();
+
         // Product - Images Relationship (1-to-Many)
         modelBuilder.Entity<ProductImage>()
             .HasOne(i => i.Product)
             .WithMany(p => p.Images)
             .HasForeignKey(i => i.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Product - FlavourNotes Relationship (1-to-Many)
+        modelBuilder.Entity<FlavourNote>()
+            .HasOne(fn => fn.Product)
+            .WithMany(p => p.FlavourNotes)
+            .HasForeignKey(fn => fn.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // FlavourNote - Translations Relationship (1-to-Many)
+        modelBuilder.Entity<FlavourNoteTranslation>()
+            .HasOne(fnt => fnt.FlavourNote)
+            .WithMany(fn => fn.Translations)
+            .HasForeignKey(fnt => fnt.FlavourNoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // FlavourNoteTranslation Configurations
+        modelBuilder.Entity<FlavourNoteTranslation>()
+            .Property(fnt => fnt.LanguageCode)
+            .IsRequired()
+            .HasMaxLength(10);
+
+        modelBuilder.Entity<FlavourNoteTranslation>()
+            .Property(fnt => fnt.Name)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        // Unique constraint: one translation per flavour note per language
+        modelBuilder.Entity<FlavourNoteTranslation>()
+            .HasIndex(fnt => new { fnt.FlavourNoteId, fnt.LanguageCode })
+            .IsUnique();
+
+        // FlavourNote Configurations
+        modelBuilder.Entity<FlavourNote>()
+            .Property(fn => fn.Name)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<FlavourNote>()
+            .Property(fn => fn.DisplayOrder)
+            .HasDefaultValue(0);
 
         // Product - Prices Relationship (1-to-Many)
         modelBuilder.Entity<ProductPrice>()
@@ -381,9 +454,78 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                     .Property(sr => sr.Cost)
                     .HasPrecision(18, 2);
 
-                // Unique constraint on ShippingRate: (CountryId, Currency) tuple
-                modelBuilder.Entity<ShippingRate>()
-                    .HasIndex(sr => new { sr.CountryId, sr.Currency })
-                    .IsUnique();
-            }
-        }
+                        // Unique constraint on ShippingRate: (CountryId, Currency) tuple
+                        modelBuilder.Entity<ShippingRate>()
+                            .HasIndex(sr => new { sr.CountryId, sr.Currency })
+                            .IsUnique();
+
+                        // ProductTranslation Configuration
+                        modelBuilder.Entity<ProductTranslation>(entity =>
+                        {
+                            entity.HasKey(pt => pt.Id);
+                            entity.Property(pt => pt.LanguageCode).IsRequired().HasMaxLength(5);
+                            entity.Property(pt => pt.Name).IsRequired().HasMaxLength(500);
+                            entity.Property(pt => pt.Description).IsRequired();
+
+                            entity.HasOne(pt => pt.Product)
+                                .WithMany(p => p.Translations)
+                                .HasForeignKey(pt => pt.ProductId)
+                                .OnDelete(DeleteBehavior.Cascade);
+
+                            // Unique constraint: one translation per product per language
+                            entity.HasIndex(pt => new { pt.ProductId, pt.LanguageCode })
+                                .IsUnique();
+                        });
+
+                                // CategoryTranslation Configuration
+                                modelBuilder.Entity<CategoryTranslation>(entity =>
+                                {
+                                    entity.HasKey(ct => ct.Id);
+                                    entity.Property(ct => ct.LanguageCode).IsRequired().HasMaxLength(5);
+                                    entity.Property(ct => ct.Name).IsRequired().HasMaxLength(500);
+
+                                    entity.HasOne(ct => ct.Category)
+                                        .WithMany(c => c.Translations)
+                                        .HasForeignKey(ct => ct.CategoryId)
+                                        .OnDelete(DeleteBehavior.Cascade);
+
+                                                        // Unique constraint: one translation per category per language
+                                                        entity.HasIndex(ct => new { ct.CategoryId, ct.LanguageCode })
+                                                            .IsUnique();
+                                                    });
+
+                                                    // Slider Configuration
+                                                    modelBuilder.Entity<AboutSection>(entity =>
+                                                    {
+                                                    });
+
+                                                    // Slider - SliderTranslation Relationship (1-to-Many)
+                                                    modelBuilder.Entity<Slider>()
+                                                        .HasMany(s => s.Translations)
+                                                        .WithOne(st => st.Slider)
+                                                        .HasForeignKey(st => st.SliderId)
+                                                        .OnDelete(DeleteBehavior.Cascade);
+
+                                                    // SliderTranslation Configuration
+                                                    modelBuilder.Entity<SliderTranslation>(entity =>
+                                                    {
+                                                        entity.HasKey(st => st.Id);
+                                                        entity.Property(st => st.LanguageCode).IsRequired().HasMaxLength(5);
+                                                        entity.Property(st => st.Title).IsRequired().HasMaxLength(500);
+                                                        entity.Property(st => st.Subtitle).HasMaxLength(1000);
+                                                        entity.Property(st => st.ButtonText).HasMaxLength(100);
+
+                                                        // Unique constraint: one translation per slider per language
+                                                        entity.HasIndex(st => new { st.SliderId, st.LanguageCode })
+                                                            .IsUnique();
+                                                    });
+
+                                                    // Slider Configuration - Properties
+                                                    modelBuilder.Entity<Slider>(entity =>
+                                                    {
+                                                        entity.Property(s => s.ImageUrl).IsRequired();
+                                                        entity.Property(s => s.Order).HasDefaultValue(0);
+                                                        entity.Property(s => s.IsActive).HasDefaultValue(true);
+                                                    });
+                                                }
+                                            }
