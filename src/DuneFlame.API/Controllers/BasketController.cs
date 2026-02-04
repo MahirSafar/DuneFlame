@@ -8,29 +8,36 @@ namespace DuneFlame.API.Controllers;
 
 [Route("api/v1/basket")]
 [ApiController]
-[Authorize]
 public class BasketController(IBasketService basketService, ICurrencyProvider currencyProvider) : ControllerBase
 {
     private readonly IBasketService _basketService = basketService;
     private readonly ICurrencyProvider _currencyProvider = currencyProvider;
 
-    private string GetUserId()
+    /// <summary>
+    /// Gets the authenticated user's ID from claims, or returns null for guest users.
+    /// </summary>
+    private string? GetUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim))
-        {
-            throw new UnauthorizedAccessException("User ID not found in claims");
-        }
-        return userIdClaim;
+        return string.IsNullOrEmpty(userIdClaim) ? null : userIdClaim;
     }
 
-    [HttpGet]
-    public async Task<IActionResult> GetBasket()
+    [HttpGet("{id}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetBasket(string id)
     {
         try
         {
-            var userId = GetUserId();
-            var basket = await _basketService.GetBasketAsync(userId);
+            // For authenticated users: Optionally allow them to fetch using their ID or a provided ID
+            var authenticatedUserId = GetUserId();
+            var basketId = authenticatedUserId ?? id;
+
+            if (string.IsNullOrWhiteSpace(basketId))
+            {
+                return BadRequest(new { message = "Basket ID is required" });
+            }
+
+            var basket = await _basketService.GetBasketAsync(basketId);
             // Ensure currency is set from request header
             basket.CurrencyCode = _currencyProvider.GetCurrentCurrencyCode();
             return Ok(basket);
@@ -46,60 +53,78 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
     }
 
     [HttpPost]
+    [AllowAnonymous]
     public async Task<IActionResult> UpdateBasket([FromBody] CustomerBasketDto basket)
     {
         try
         {
-            var userId = GetUserId();
-            // Force basket.Id to match the authenticated user's ID to prevent cross-user manipulation
-            basket.Id = userId;
+            if (basket == null || string.IsNullOrWhiteSpace(basket.Id))
+            {
+                return BadRequest(new { message = "Basket ID is required" });
+            }
+
+            // For authenticated users: Force basket.Id to their UserId to ensure persistence
+            var authenticatedUserId = GetUserId();
+            if (!string.IsNullOrEmpty(authenticatedUserId))
+            {
+                // User is logged in - tie basket to their account
+                basket.Id = authenticatedUserId;
+            }
+            // For guest users: Use the provided ID from frontend (guest_xyz format)
+
             // Set currency from request header
             basket.CurrencyCode = _currencyProvider.GetCurrentCurrencyCode();
 
             await _basketService.UpdateBasketAsync(basket);
             return Ok(new { message = "Basket updated successfully" });
         }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
-        }
         catch (Exception ex)
         {
             return BadRequest(new { message = ex.Message });
         }
     }
 
-    [HttpDelete("{itemId:guid}")]
-    public async Task<IActionResult> DeleteProductFromBasket(Guid itemId)
+    [HttpDelete("{id}/items/{itemId:guid}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> DeleteProductFromBasket(string id, Guid itemId)
     {
         try
         {
-            var userId = GetUserId();
-            await _basketService.RemoveItemFromBasketAsync(userId, itemId);
+            // For authenticated users: Use their UserId instead of provided ID
+            var authenticatedUserId = GetUserId();
+            var basketId = authenticatedUserId ?? id;
+
+            if (string.IsNullOrWhiteSpace(basketId))
+            {
+                return BadRequest(new { message = "Basket ID is required" });
+            }
+
+            await _basketService.RemoveItemFromBasketAsync(basketId, itemId);
             return Ok(new { message = "Basket item removed successfully" });
         }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
-        }
         catch (Exception ex)
         {
             return BadRequest(new { message = ex.Message });
         }
     }
 
-    [HttpDelete]
-    public async Task<IActionResult> DeleteBasket()
+    [HttpDelete("{id}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> DeleteBasket(string id)
     {
         try
         {
-            var userId = GetUserId();
-            await _basketService.DeleteBasketAsync(userId);
+            // For authenticated users: Use their UserId instead of provided ID
+            var authenticatedUserId = GetUserId();
+            var basketId = authenticatedUserId ?? id;
+
+            if (string.IsNullOrWhiteSpace(basketId))
+            {
+                return BadRequest(new { message = "Basket ID is required" });
+            }
+
+            await _basketService.DeleteBasketAsync(basketId);
             return Ok(new { message = "Basket deleted successfully" });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
         }
         catch (Exception ex)
         {

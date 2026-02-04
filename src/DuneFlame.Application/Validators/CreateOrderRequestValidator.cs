@@ -63,6 +63,32 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
                 .WithMessage("Country must be at least 2 characters long.")
                 .MaximumLength(50)
                 .WithMessage("Country must not exceed 50 characters.");
+
+            // Guest contact information validation (optional for logged-in users, required for guests)
+            RuleFor(x => x.ShippingAddress.Email)
+                .EmailAddress()
+                .WithMessage("Valid email address is required if provided.");
+
+            RuleFor(x => x.ShippingAddress.PhoneNumber)
+                .MinimumLength(7)
+                .WithMessage("Phone number must be at least 7 characters long.")
+                .MaximumLength(20)
+                .WithMessage("Phone number must not exceed 20 characters.")
+                .When(x => !string.IsNullOrEmpty(x.ShippingAddress.PhoneNumber));
+
+            RuleFor(x => x.ShippingAddress.FirstName)
+                .MinimumLength(2)
+                .WithMessage("First name must be at least 2 characters long.")
+                .MaximumLength(50)
+                .WithMessage("First name must not exceed 50 characters.")
+                .When(x => !string.IsNullOrEmpty(x.ShippingAddress.FirstName));
+
+            RuleFor(x => x.ShippingAddress.LastName)
+                .MinimumLength(2)
+                .WithMessage("Last name must be at least 2 characters long.")
+                .MaximumLength(50)
+                .WithMessage("Last name must not exceed 50 characters.")
+                .When(x => !string.IsNullOrEmpty(x.ShippingAddress.LastName));
         });
     }
 }

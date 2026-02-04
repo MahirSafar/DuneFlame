@@ -102,7 +102,7 @@ builder.Services.AddScoped<ICartValidator, CartValidator>();
 // İnfrastruktur Servisləri (Xətanın həlli buradadır)
 builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
-builder.Services.AddScoped<IFileService, LocalFileService>();
+builder.Services.AddScoped<IFileService, CloudStorageService>();
 
 // Biznes Servisləri
 builder.Services.AddScoped<IAuthService, AuthService>();

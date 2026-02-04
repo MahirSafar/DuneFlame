@@ -301,13 +301,13 @@ public class AdminOrderService(
                     }
                 }
 
-            // 2C: Reverse Reward Points via Unit of Work Pattern
-            if (order.PointsEarned > 0 || order.PointsRedeemed > 0)
+            // 2C: Reverse Reward Points via Unit of Work Pattern (only for registered users)
+            if ((order.PointsEarned > 0 || order.PointsRedeemed > 0) && order.UserId.HasValue)
             {
                 try
                 {
                     // Pass only primitives to prevent EF Core from tracking the stale Order entity
-                    await _rewardService.RefundPointsAsync(order.UserId, order.Id, order.PointsEarned, order.PointsRedeemed);
+                    await _rewardService.RefundPointsAsync(order.UserId.Value, order.Id, order.PointsEarned, order.PointsRedeemed);
                     _logger.LogInformation("Reward points reversed for Order {OrderId}", orderId);
                 }
                 catch (Exception ex)
@@ -411,6 +411,7 @@ public class AdminOrderService(
 
          return new OrderDto(
              order.Id,
+             order.UserId,
              order.Status,
              order.TotalAmount,
              order.CurrencyCode,

@@ -5,7 +5,11 @@ public record AddressDto(
     string City,
     string State,
     string PostalCode,
-    string Country
+    string Country,
+    string? Email = null,
+    string? PhoneNumber = null,
+    string? FirstName = null,
+    string? LastName = null
 )
 {
     public override string ToString() => $"{Street}, {City}, {State} {PostalCode}, {Country}";

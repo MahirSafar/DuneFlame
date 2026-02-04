@@ -4,6 +4,7 @@ namespace DuneFlame.Application.DTOs.Order;
 
 public record OrderDto(
     Guid Id,
+    Guid? UserId,
     OrderStatus Status,
     decimal TotalAmount,
     Currency Currency,

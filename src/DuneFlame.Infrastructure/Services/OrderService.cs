@@ -29,7 +29,7 @@ public class OrderService(
     private readonly IShippingService _shippingService = shippingService;
     private readonly ILogger<OrderService> _logger = logger;
 
-    public async Task<OrderDto> CreateOrderAsync(Guid userId, CreateOrderRequest request)
+    public async Task<OrderDto> CreateOrderAsync(Guid? userId, CreateOrderRequest request)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -129,34 +129,38 @@ public class OrderService(
 
             // 2. Check if there's already a Pending order for this user within the last 60 seconds
             // This prevents double-click submissions where the same user tries to place the same order twice
-            var sixtySecondsAgo = DateTime.UtcNow.AddSeconds(-60);
-            var recentPendingOrders = await _context.Orders
-                .Where(o => o.UserId == userId && 
-                            o.Status == OrderStatus.Pending &&
-                            o.CreatedAt > sixtySecondsAgo)
-                .OrderByDescending(o => o.CreatedAt)
-                .ToListAsync();
-
-            if (recentPendingOrders.Any())
+            // Skip this check for guest users (userId is null)
+            if (userId.HasValue)
             {
-                _logger.LogWarning(
-                    "Found {Count} recent pending orders for user {UserId} in the last 60 seconds. Preventing potential duplicate.",
-                    recentPendingOrders.Count, userId);
+                var sixtySecondsAgo = DateTime.UtcNow.AddSeconds(-60);
+                var recentPendingOrders = await _context.Orders
+                    .Where(o => o.UserId == userId && 
+                                o.Status == OrderStatus.Pending &&
+                                o.CreatedAt > sixtySecondsAgo)
+                    .OrderByDescending(o => o.CreatedAt)
+                    .ToListAsync();
 
-                // Check if any recent order has the same total amount (good indicator of duplicate attempt)
-                // We'll calculate the expected total first to make an accurate comparison
-                decimal expectedTotal = await CalculateOrderTotalAsync(userId, request, basket);
-
-                var potentialDuplicate = recentPendingOrders.FirstOrDefault(o => 
-                    Math.Abs(o.TotalAmount - expectedTotal) < 0.01m); // Allow small floating point variance
-
-                if (potentialDuplicate != null)
+                if (recentPendingOrders.Any())
                 {
                     _logger.LogWarning(
-                        "Found exact duplicate order attempt for user {UserId}: OrderId={OrderId}, Amount={Amount}, CreatedAt={CreatedAt}",
-                        userId, potentialDuplicate.Id, potentialDuplicate.TotalAmount, potentialDuplicate.CreatedAt);
-                    throw new DuneFlame.Domain.Exceptions.ConflictException(
-                        $"An identical order is already being processed (Order ID: {potentialDuplicate.Id}). Please wait at least 60 seconds before attempting again.");
+                        "Found {Count} recent pending orders for user {UserId} in the last 60 seconds. Preventing potential duplicate.",
+                        recentPendingOrders.Count, userId);
+
+                    // Check if any recent order has the same total amount (good indicator of duplicate attempt)
+                    // We'll calculate the expected total first to make an accurate comparison
+                    decimal expectedTotal = await CalculateOrderTotalAsync(userId, request, basket);
+
+                    var potentialDuplicate = recentPendingOrders.FirstOrDefault(o => 
+                        Math.Abs(o.TotalAmount - expectedTotal) < 0.01m); // Allow small floating point variance
+
+                    if (potentialDuplicate != null)
+                    {
+                        _logger.LogWarning(
+                            "Found exact duplicate order attempt for user {UserId}: OrderId={OrderId}, Amount={Amount}, CreatedAt={CreatedAt}",
+                            userId, potentialDuplicate.Id, potentialDuplicate.TotalAmount, potentialDuplicate.CreatedAt);
+                        throw new DuneFlame.Domain.Exceptions.ConflictException(
+                            $"An identical order is already being processed (Order ID: {potentialDuplicate.Id}). Please wait at least 60 seconds before attempting again.");
+                    }
                 }
             }
 
@@ -265,8 +269,8 @@ public class OrderService(
                     "Order total calculation: Subtotal={Subtotal}, Shipping={Shipping}, Total={Total} {Currency}",
                     subtotal, shippingCost, totalAmount, order.CurrencyCode);
 
-            // Handle reward points redemption
-            if (request.UsePoints)
+            // Handle reward points redemption (only for registered users)
+            if (userId.HasValue && request.UsePoints)
             {
                 var wallet = await _context.RewardWallets
                     .FirstOrDefaultAsync(w => w.UserId == userId);
@@ -279,7 +283,7 @@ public class OrderService(
                     order.TotalAmount -= discount;
 
                     // Redeem points atomically
-                    await _rewardService.RedeemPointsAsync(userId, discount, order.Id);
+                    await _rewardService.RedeemPointsAsync(userId.Value, discount, order.Id);
                 }
             }
 
@@ -429,13 +433,16 @@ public class OrderService(
                 _logger.LogInformation("ProcessPaymentSuccess PHASE 3: Earn cashback points for Order {OrderId}",
                     order.Id);
 
-                // PHASE 3: Earn Cashback Points (fresh scope, retryable)
+                // PHASE 3: Earn Cashback Points (fresh scope, retryable, only for registered users)
                 var cashback = RewardService.CalculateCashback(order.TotalAmount);
                 order.PointsEarned = cashback;
                 _context.Orders.Update(order);
 
-                // Call RewardService to earn points
-                await _rewardService.EarnPointsAsync(order.UserId, order.Id, cashback);
+                // Call RewardService to earn points only if user is registered
+                if (order.UserId.HasValue)
+                {
+                    await _rewardService.EarnPointsAsync(order.UserId.Value, order.Id, cashback);
+                }
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -510,7 +517,7 @@ public class OrderService(
     /// Helper method to calculate expected order total for duplicate detection.
     /// This allows us to detect if a new order request has the same total as a recent pending order.
     /// </summary>
-    private async Task<decimal> CalculateOrderTotalAsync(Guid userId, CreateOrderRequest request, CustomerBasketDto basket)
+    private async Task<decimal> CalculateOrderTotalAsync(Guid? userId, CreateOrderRequest request, CustomerBasketDto basket)
     {
         try
         {
@@ -601,6 +608,7 @@ public class OrderService(
 
         return new OrderDto(
             order.Id,
+            order.UserId,
             order.Status,
             order.TotalAmount,
             order.CurrencyCode,

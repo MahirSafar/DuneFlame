@@ -19,9 +19,17 @@ public class RewardService(AppDbContext context) : IRewardService
             .Include(w => w.Transactions)
             .FirstOrDefaultAsync(w => w.UserId == userId);
 
+        // Auto-create wallet if it doesn't exist
         if (wallet == null)
         {
-            throw new NotFoundException($"Reward wallet not found for user {userId}");
+            wallet = new RewardWallet
+            {
+                UserId = userId,
+                Balance = 0
+            };
+
+            _context.RewardWallets.Add(wallet);
+            await _context.SaveChangesAsync();
         }
 
         var totalEarned = wallet.Transactions
