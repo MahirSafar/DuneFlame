@@ -10,9 +10,11 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/auth")]
 [ApiController]
 [EnableRateLimiting("AuthPolicy")]
-public class AuthController(IAuthService authService) : ControllerBase
+public class AuthController(IAuthService authService, IConfiguration config, IWebHostEnvironment env) : ControllerBase
 {
     private readonly IAuthService _authService = authService;
+    private readonly IConfiguration _config = config;
+    private readonly IWebHostEnvironment _env = env;
 
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -52,9 +54,7 @@ public class AuthController(IAuthService authService) : ControllerBase
     {
         var result = await _authService.VerifyEmailAsync(userId, token);
 
-        // Frontend URL-ni hardcode yazmaq əvəzinə appsettings.json-dan oxumaq daha yaxşıdır
-        // Hələlik birbaşa yazıram:
-        string frontendLoginUrl = "http://localhost:3000/auth/login";
+        string frontendLoginUrl = GetFrontendUrl("FrontendUrls:LoginUrl");
 
         if (result)
         {
@@ -68,7 +68,18 @@ public class AuthController(IAuthService authService) : ControllerBase
     [HttpGet("external-login")]
     public IActionResult ExternalLogin(string provider = "Google")
     {
-        var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", null, Request.Scheme);
+        // Build the callback URL with proper scheme handling
+        // In cloud environments (Cloud Run, etc.), forwarded headers ensure correct scheme
+        var scheme = Request.Scheme;
+
+        // Fallback: if in production and scheme is http, force https
+        // (ForwardedHeaders middleware should handle this, but this is a safety net)
+        if (!_env.IsDevelopment() && scheme == "http")
+        {
+            scheme = "https";
+        }
+
+        var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Auth", null, scheme);
         var properties = _authService.ConfigureExternalLoginsAsync(provider, redirectUrl!).Result;
         return Challenge(properties, provider);
     }
@@ -78,9 +89,7 @@ public class AuthController(IAuthService authService) : ControllerBase
         {
             var response = await _authService.ExternalLoginCallbackAsync();
 
-            // Construct frontend callback URL with all required parameters
-            // Frontend can extract accessToken, refreshToken, userId, and roles from query string
-            var frontendCallbackUrl = "http://localhost:3000/auth/google-callback";
+            var frontendCallbackUrl = GetFrontendUrl("FrontendUrls:CallbackUrl");
 
             var redirectUrl = $"{frontendCallbackUrl}?" +
                 $"userId={Uri.EscapeDataString(response.Id.ToString())}&" +
@@ -92,6 +101,21 @@ public class AuthController(IAuthService authService) : ControllerBase
                 $"roles={Uri.EscapeDataString(string.Join(",", response.Roles))}";
 
             return Redirect(redirectUrl);
+        }
+
+        /// <summary>
+        /// Returns the appropriate frontend URL based on the current environment
+        /// </summary>
+        private string GetFrontendUrl(string configKey)
+        {
+            if (_env.IsDevelopment())
+            {
+                return _config[configKey] ?? "http://localhost:3000/auth/google-callback";
+            }
+
+            // For production, use production URLs
+            var productionKey = configKey.Replace("FrontendUrls:", "FrontendUrls:Production");
+            return _config[productionKey] ?? _config[configKey] ?? "https://duneflame.web.app/auth/google-callback";
         }
 
         [HttpPost("forgot-password")]

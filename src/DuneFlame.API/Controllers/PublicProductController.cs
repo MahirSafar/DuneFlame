@@ -21,7 +21,9 @@ public class PublicProductController(IProductService productService) : Controlle
         [FromQuery] string? sortBy = null,
         [FromQuery] Guid? categoryId = null,
         [FromQuery] decimal? minPrice = null,
-        [FromQuery] decimal? maxPrice = null)
+        [FromQuery] decimal? maxPrice = null,
+        [FromQuery] Guid[]? roastLevelIds = null,
+        [FromQuery] Guid[]? originIds = null)
     {
         try
         {
@@ -32,7 +34,9 @@ public class PublicProductController(IProductService productService) : Controlle
                 search: search,
                 categoryId: categoryId,
                 minPrice: minPrice,
-                maxPrice: maxPrice);
+                maxPrice: maxPrice,
+                roastLevelIds: roastLevelIds,
+                originIds: originIds);
 
             return Ok(result);
         }

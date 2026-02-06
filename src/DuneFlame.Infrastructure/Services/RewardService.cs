@@ -103,11 +103,15 @@ public class RewardService(AppDbContext context) : IRewardService
 
     /// <summary>
     /// Redeem points for an order with balance validation.
+    /// PHASE 1 (ATOMIC): Validate wallet and balance
+    /// PHASE 2 (SHADOW): Apply balance update via atomic SQL
+    /// PHASE 3 (COMMIT): Record transaction entry
     /// </summary>
     public async Task RedeemPointsAsync(Guid userId, decimal amount, Guid orderId)
     {
+        // PHASE 1: Fetch wallet for validation (read-only, no tracking)
         var wallet = await _context.RewardWallets
-            .Include(w => w.Transactions)
+            .AsNoTracking()
             .FirstOrDefaultAsync(w => w.UserId == userId);
 
         if (wallet == null)
@@ -121,20 +125,24 @@ public class RewardService(AppDbContext context) : IRewardService
                 $"Insufficient reward balance. Available: {wallet.Balance}, Requested: {amount}");
         }
 
+        // PHASE 2: Atomic Balance Update (shadow update via native SQL)
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $@"UPDATE ""RewardWallets"" SET ""Balance"" = ""Balance"" - {amount}, ""UpdatedAt"" = {DateTime.UtcNow} 
+               WHERE ""Id"" = {wallet.Id} AND ""Balance"" >= {amount}");
+
+        // PHASE 3: Record transaction entry
         var transaction = new RewardTransaction
         {
             WalletId = wallet.Id,
-            Amount = -amount, // Negative for redemption
+            Amount = -amount,
             Type = RewardType.Redeemed,
             Description = $"Points redeemed for Order #{orderId:N}",
             RelatedOrderId = orderId
         };
 
-            wallet.Transactions.Add(transaction);
-            wallet.Balance -= amount;
-
-            await _context.SaveChangesAsync();
-        }
+        _context.RewardTransactions.Add(transaction);
+        await _context.SaveChangesAsync();
+    }
 
     /// <summary>
     /// Refund points due to order cancellation.

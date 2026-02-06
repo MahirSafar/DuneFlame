@@ -341,7 +341,9 @@ public class ProductService(
         string? search = null,
         Guid? categoryId = null,
         decimal? minPrice = null,
-        decimal? maxPrice = null)
+        decimal? maxPrice = null,
+        Guid[]? roastLevelIds = null,
+        Guid[]? originIds = null)
     {
         if (pageNumber < 1) pageNumber = 1;
         if (pageSize < 1) pageSize = 10;
@@ -351,7 +353,10 @@ public class ProductService(
         var languageCode = ExtractLanguageFromRequest();
         _logger.LogInformation("Shop request for currency: {Currency}, language: {Language}, minPrice: {MinPrice}, maxPrice: {MaxPrice}", currentCurrency, languageCode, minPrice, maxPrice);
 
-        var cacheKey = $"{ProductCacheKeyPrefix}:all:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}";
+        // Build cache key including new filters
+        var roastLevelIdsCacheKey = roastLevelIds != null ? string.Join(",", roastLevelIds.OrderBy(x => x)) : "null";
+        var originIdsCacheKey = originIds != null ? string.Join(",", originIds.OrderBy(x => x)) : "null";
+        var cacheKey = $"{ProductCacheKeyPrefix}:all:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
         var cacheTag = $"{ProductTagPrefix}:list";
 
         var result = await _cache.GetOrCreateAsync(
@@ -385,13 +390,33 @@ public class ProductService(
                         p.Translations.Any(t => t.Description.Contains(search)));
                 }
 
-                // Sorting
+                // ========== NEW: Filter by Roast Levels (BEFORE pagination) ==========
+                if (roastLevelIds != null && roastLevelIds.Length > 0)
+                {
+                    query = query.Where(p =>
+                        p.RoastLevels.Any(r => roastLevelIds.Contains(r.Id)));
+                    _logger.LogInformation("Applied roast level filter: {RoastLevelIds}", string.Join(",", roastLevelIds));
+                }
+
+                // ========== NEW: Filter by Origins (BEFORE pagination) ==========
+                if (originIds != null && originIds.Length > 0)
+                {
+                    query = query.Where(p =>
+                        originIds.Contains(p.OriginId.Value));
+                    _logger.LogInformation("Applied origin filter: {OriginIds}", string.Join(",", originIds));
+                }
+
+                // ========== NEW: Extended Sorting Support ==========
                 query = sortBy?.ToLower() switch
                 {
                     "stock-asc" => query.OrderBy(p => p.StockInKg),
                     "stock-desc" => query.OrderByDescending(p => p.StockInKg),
                     "date-asc" => query.OrderBy(p => p.CreatedAt),
                     "date-desc" => query.OrderByDescending(p => p.CreatedAt),
+                    "name-asc" => query.OrderBy(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
+                    "name-desc" => query.OrderByDescending(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
+                    "price-asc" => query.OrderBy(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
+                    "price-desc" => query.OrderByDescending(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
                     _ => query.OrderByDescending(p => p.CreatedAt)
                 };
 
@@ -451,7 +476,9 @@ public class ProductService(
                                                         string? search = null,
                                                         Guid? categoryId = null,
                                                         decimal? minPrice = null,
-                                                        decimal? maxPrice = null)
+                                                        decimal? maxPrice = null,
+                                                        Guid[]? roastLevelIds = null,
+                                                        Guid[]? originIds = null)
                                                     {
                                                         if (pageNumber < 1) pageNumber = 1;
                                                         if (pageSize < 1) pageSize = 10;
@@ -459,7 +486,10 @@ public class ProductService(
 
                                                         var currentCurrency = _currencyProvider.GetCurrentCurrency();
                                                         var languageCode = ExtractLanguageFromRequest();
-                                                        var cacheKey = $"{ProductCacheKeyPrefix}:admin:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}";
+
+                                                        var roastLevelIdsCacheKey = roastLevelIds != null ? string.Join(",", roastLevelIds.OrderBy(x => x)) : "null";
+                                                        var originIdsCacheKey = originIds != null ? string.Join(",", originIds.OrderBy(x => x)) : "null";
+                                                        var cacheKey = $"{ProductCacheKeyPrefix}:admin:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
                                                         var cacheTag = $"{ProductTagPrefix}:admin-list";
 
                                                 var result = await _cache.GetOrCreateAsync(
@@ -492,13 +522,31 @@ public class ProductService(
                                                                 p.Translations.Any(t => t.Description.Contains(search)));
                                                         }
 
-                                                        // Sorting
+                                                        // Filter by Roast Levels (BEFORE pagination)
+                                                        if (roastLevelIds != null && roastLevelIds.Length > 0)
+                                                        {
+                                                            query = query.Where(p =>
+                                                                p.RoastLevels.Any(r => roastLevelIds.Contains(r.Id)));
+                                                        }
+
+                                                        // Filter by Origins (BEFORE pagination)
+                                                        if (originIds != null && originIds.Length > 0)
+                                                        {
+                                                            query = query.Where(p =>
+                                                                originIds.Contains(p.OriginId.Value));
+                                                        }
+
+                                                        // Extended Sorting Support
                                                         query = sortBy?.ToLower() switch
                                                         {
                                                             "stock-asc" => query.OrderBy(p => p.StockInKg),
                                                             "stock-desc" => query.OrderByDescending(p => p.StockInKg),
                                                             "date-asc" => query.OrderBy(p => p.CreatedAt),
                                                             "date-desc" => query.OrderByDescending(p => p.CreatedAt),
+                                                            "name-asc" => query.OrderBy(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
+                                                            "name-desc" => query.OrderByDescending(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
+                                                            "price-asc" => query.OrderBy(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
+                                                            "price-desc" => query.OrderByDescending(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
                                                             _ => query.OrderByDescending(p => p.CreatedAt)
                                                         };
 

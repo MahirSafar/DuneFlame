@@ -8,6 +8,7 @@ using DuneFlame.Infrastructure.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
@@ -225,6 +226,13 @@ if (!app.Environment.IsEnvironment("Testing"))
 app.UseSerilogRequestLogging();
 // Middleware Sıralaması (Kritik!)
 app.UseMiddleware<GlobalExceptionMiddleware>();
+
+// ForwardedHeaders must be early in the pipeline to properly handle X-Forwarded-Proto, X-Forwarded-For, etc.
+// This is essential for cloud environments like Cloud Run where requests come through reverse proxies
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 
 if (app.Environment.IsDevelopment())
 {

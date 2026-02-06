@@ -18,7 +18,9 @@ public interface IProductService
         string? search = null,
         Guid? categoryId = null,
         decimal? minPrice = null,
-        decimal? maxPrice = null);
+        decimal? maxPrice = null,
+        Guid[]? roastLevelIds = null,
+        Guid[]? originIds = null);
     Task<PagedResult<ProductResponse>> GetAllAdminAsync(
         int pageNumber = 1,
         int pageSize = 10,
@@ -26,7 +28,9 @@ public interface IProductService
         string? search = null,
         Guid? categoryId = null,
         decimal? minPrice = null,
-        decimal? maxPrice = null);
+        decimal? maxPrice = null,
+        Guid[]? roastLevelIds = null,
+        Guid[]? originIds = null);
 
     // Update
     Task UpdateAsync(Guid id, UpdateProductRequest request);
