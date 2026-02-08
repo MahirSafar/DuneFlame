@@ -2,14 +2,19 @@
 using System.Net.Mail;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace DuneFlame.Infrastructure.Services;
 
-public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmailService>? logger = null) : IEmailService
+public class SmtpEmailService(
+    IOptions<EmailSettings> settings,
+    IOptions<ClientUrls> clientUrls,
+    ILogger<SmtpEmailService>? logger = null) : IEmailService
 {
     private readonly EmailSettings _settings = settings.Value;
+    private readonly ClientUrls _clientUrls = clientUrls.Value;
     private readonly ILogger<SmtpEmailService>? _logger = logger;
     private const int MaxRetries = 3;
     private const int RetryDelayMs = 1000;
@@ -130,8 +135,8 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
     {
         try
         {
-            // Link points to API, which then redirects to Frontend
-            var verificationLink = $"https://localhost:7190/api/v1/auth/verify-email?userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(token)}";
+            // Link points to API with verification endpoint, then redirects to Frontend
+            var verificationLink = $"{_clientUrls.ApiBaseUrl}/api/v1/auth/verify-email?userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(token)}";
 
             var body = GetHtmlTemplate(
                 "Verify Your Account",
@@ -152,8 +157,8 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
     {
         try
         {
-            // Password reset links usually go directly to the Frontend (Next.js)
-            var frontendResetUrl = $"http://localhost:3000/auth/reset-password?userId={Uri.EscapeDataString(userId)}&email={Uri.EscapeDataString(to)}&token={Uri.EscapeDataString(token)}";
+            // Password reset links go directly to the Frontend
+            var frontendResetUrl = $"{_clientUrls.BaseUrl}/auth/reset-password?userId={Uri.EscapeDataString(userId)}&email={Uri.EscapeDataString(to)}&token={Uri.EscapeDataString(token)}";
 
             var body = GetHtmlTemplate(
                 "Reset Your Password",
@@ -174,7 +179,7 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
     {
         try
         {
-            var link = $"https://localhost:7190/api/v1/newsletter/verify?token={Uri.EscapeDataString(token)}";
+            var link = $"{_clientUrls.ApiBaseUrl}/api/v1/newsletter/verify?token={Uri.EscapeDataString(token)}";
 
             var body = GetHtmlTemplate(
                 "Confirm Subscription",
@@ -246,11 +251,18 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
 
         /// <summary>
         /// Send order paid confirmation email with order details in the specified language.
+        /// Link includes locale parameter for i18n support.
         /// </summary>
         public async Task SendOrderPaidAsync(string to, Guid orderId, decimal amount, string languageCode = "en")
         {
             try
             {
+                // Extract base language code (e.g., "en" from "en-US")
+                var baseLanguageCode = languageCode?.ToLowerInvariant().Substring(0, Math.Min(2, languageCode?.Length ?? 0)) ?? "en";
+
+                // Build localized order tracking URL
+                var orderTrackingUrl = $"{_clientUrls.BaseUrl}/{baseLanguageCode}/dashboard/orders/{orderId}";
+
                 // Get localized subject and message based on language code
                 var (subject, title, message, buttonText) = GetLocalizedOrderConfirmation(languageCode, orderId, amount);
 
@@ -258,10 +270,12 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
                     title,
                     message,
                     buttonText,
-                    "http://localhost:3000/orders"); // Link to orders page
+                    orderTrackingUrl);
 
                 await SendGenericEmailAsync(to, subject, body);
-                _logger?.LogInformation("SendOrderPaidAsync: Order paid email sent to {To} for OrderId {OrderId} in language {Language}", to, orderId, languageCode);
+                _logger?.LogInformation(
+                    "SendOrderPaidAsync: Order paid email sent to {To} for OrderId {OrderId} in language {Language} with URL {TrackingUrl}",
+                    to, orderId, baseLanguageCode, orderTrackingUrl);
             }
             catch (Exception ex)
             {
@@ -311,12 +325,14 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
                     ? "Your tracking number will be available shortly."
                     : $"Your tracking number is: <strong>{System.Net.WebUtility.HtmlEncode(trackingNumber)}</strong>";
 
+                var orderTrackingUrl = $"{_clientUrls.BaseUrl}/en/dashboard/orders/{orderId}";
+
                 var body = GetHtmlTemplate(
                     "Your Order Has Shipped",
                     $"Great news! Your order #{orderId:N} is on its way. {trackingInfo} " +
                     "You can track your shipment through our website.",
                     "Track Shipment",
-                    "http://localhost:3000/orders");
+                    orderTrackingUrl);
 
                 await SendGenericEmailAsync(to, $"Your Order #{orderId:N} Has Shipped - DuneFlame", body);
                 _logger?.LogInformation("SendOrderShippedAsync: Order shipped email sent to {To} for OrderId {OrderId}", to, orderId);
@@ -335,12 +351,14 @@ public class SmtpEmailService(IOptions<EmailSettings> settings, ILogger<SmtpEmai
         {
             try
             {
+                var shopMoreUrl = $"{_clientUrls.BaseUrl}/en/products";
+
                 var body = GetHtmlTemplate(
                     "Your Order Has Been Delivered",
                     $"Your order #{orderId:N} has been delivered! We hope you enjoy your purchase. " +
                     "If you have any questions or need assistance, please don't hesitate to contact us.",
                     "Shop More",
-                    "http://localhost:3000/products");
+                    shopMoreUrl);
 
                 await SendGenericEmailAsync(to, $"Order #{orderId:N} Delivered - DuneFlame", body);
                 _logger?.LogInformation("SendOrderDeliveredAsync: Order delivered email sent to {To} for OrderId {OrderId}", to, orderId);

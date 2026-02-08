@@ -255,10 +255,11 @@ public class OrderService(
                         order.Id, request.ShippingAddress.Country);
                 }
 
-                // Calculate shipping cost based on destination country and currency
-                var shippingCost = await _shippingService.GetShippingCostAsync(
+                // Calculate shipping cost based on destination country, currency, and subtotal (with promotion logic)
+                var shippingCost = await _shippingService.GetShippingCostWithPromotionAsync(
                     request.ShippingAddress.Country,
-                    order.CurrencyCode);
+                    order.CurrencyCode,
+                    subtotal);
 
                 // Calculate total: Subtotal + Shipping
                 var totalAmount = subtotal + shippingCost;
@@ -287,6 +288,12 @@ public class OrderService(
                 }
             }
 
+            // Ensure final amount is never negative (cap at 0)
+            if (order.TotalAmount < 0)
+            {
+                order.TotalAmount = 0;
+            }
+
             _context.Orders.Add(order);
 
             await _context.SaveChangesAsync();
@@ -303,6 +310,152 @@ public class OrderService(
             {
                 _logger.LogWarning(ex, "Failed to lock basket {BasketId}. Continuing with payment processing.", 
                     request.BasketId);
+            }
+
+            // ZERO-PAYMENT LOGIC: If final amount is 0, bypass Stripe and mark order as Paid
+            if (order.TotalAmount == 0)
+            {
+                _logger.LogInformation(
+                    "Zero-payment order detected for Order {OrderId}. Reward covered the entire order. Bypassing Stripe.",
+                    order.Id);
+
+                // Mark order as Paid immediately
+                order.Status = OrderStatus.Paid;
+
+                // Set a dummy PaymentIntentId for internal tracking
+                const string DummyPaymentIntentId = "internal_reward_payment";
+                order.PaymentIntentId = DummyPaymentIntentId;
+
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
+
+                // Record payment transaction for internal tracking
+                var paymentTransaction = new PaymentTransaction
+                {
+                    OrderId = order.Id,
+                    Amount = order.TotalAmount,
+                    CurrencyCode = order.CurrencyCode,
+                    Status = "Succeeded",
+                    TransactionId = DummyPaymentIntentId,
+                    PaymentMethod = "internal_reward"
+                };
+
+                _context.PaymentTransactions.Add(paymentTransaction);
+
+                // Earn cashback points for registered users even on zero-payment orders
+                if (userId.HasValue)
+                {
+                    var cashback = RewardService.CalculateCashback(order.TotalAmount);
+                    order.PointsEarned = cashback;
+                    _context.Orders.Update(order);
+                    await _rewardService.EarnPointsAsync(userId.Value, order.Id, cashback);
+                }
+
+                await _context.SaveChangesAsync();
+
+                // Update basket with dummy PaymentIntentId for consistency
+                try
+                {
+                    basket.PaymentIntentId = DummyPaymentIntentId;
+                    await _basketService.UpdateBasketAsync(basket);
+                    _logger.LogInformation(
+                        "Basket {BasketId} updated with dummy PaymentIntentId for zero-payment order {OrderId}",
+                        request.BasketId, order.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, 
+                        "Failed to update basket {BasketId} with dummy PaymentIntentId.",
+                        request.BasketId);
+                }
+
+                await transaction.CommitAsync();
+
+                _logger.LogInformation(
+                    "Zero-payment order {OrderId} completed successfully. No Stripe charge required. User rewarded for redemption.",
+                    order.Id);
+
+                // Reload order with related data for mapping
+                var zeroPaymentOrder = await _context.Orders
+                    .Include(o => o.Items)
+                    .Include(o => o.ApplicationUser)
+                    .FirstOrDefaultAsync(o => o.Id == order.Id);
+
+                var zeroPaymentOrderDto = MapToOrderDto(zeroPaymentOrder!);
+                // Return success response with empty client secret (no payment required)
+                return zeroPaymentOrderDto with { ClientSecret = string.Empty };
+            }
+
+            // STRIPE MINIMUM CHECK: If amount is positive but less than Stripe minimum, treat as free order
+            // Stripe minimum charge varies by currency, but typically $0.50 USD / 50 fils AED
+            const decimal StripeMinimumUsd = 0.50m;
+            const decimal StripeMinimumAed = 1.83m; // ~50 fils in AED
+
+            decimal stripeMinimum = order.CurrencyCode switch
+            {
+                Currency.AED => StripeMinimumAed,
+                _ => StripeMinimumUsd // Default to USD minimum
+            };
+
+            if (order.TotalAmount > 0 && order.TotalAmount < stripeMinimum)
+            {
+                _logger.LogInformation(
+                    "Order {OrderId} amount {Amount} {Currency} is below Stripe minimum {Minimum}. Treating as zero-payment order.",
+                    order.Id, order.TotalAmount, order.CurrencyCode, stripeMinimum);
+
+                // Treat as free order (same logic as zero-payment)
+                order.Status = OrderStatus.Paid;
+                const string DummyPaymentIntentId = "internal_minimum_threshold";
+                order.PaymentIntentId = DummyPaymentIntentId;
+
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
+
+                var paymentTransaction = new PaymentTransaction
+                {
+                    OrderId = order.Id,
+                    Amount = order.TotalAmount,
+                    CurrencyCode = order.CurrencyCode,
+                    Status = "Succeeded",
+                    TransactionId = DummyPaymentIntentId,
+                    PaymentMethod = "internal_minimum_threshold"
+                };
+
+                _context.PaymentTransactions.Add(paymentTransaction);
+
+                if (userId.HasValue)
+                {
+                    var cashback = RewardService.CalculateCashback(order.TotalAmount);
+                    order.PointsEarned = cashback;
+                    _context.Orders.Update(order);
+                    await _rewardService.EarnPointsAsync(userId.Value, order.Id, cashback);
+                }
+
+                await _context.SaveChangesAsync();
+
+                try
+                {
+                    basket.PaymentIntentId = DummyPaymentIntentId;
+                    await _basketService.UpdateBasketAsync(basket);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update basket {BasketId} with minimum threshold PaymentIntentId.", request.BasketId);
+                }
+
+                await transaction.CommitAsync();
+
+                _logger.LogInformation(
+                    "Minimum threshold order {OrderId} completed successfully. Amount {Amount} {Currency} below minimum charge.",
+                    order.Id, order.TotalAmount, order.CurrencyCode);
+
+                var minimumThresholdOrder = await _context.Orders
+                    .Include(o => o.Items)
+                    .Include(o => o.ApplicationUser)
+                    .FirstOrDefaultAsync(o => o.Id == order.Id);
+
+                var minimumThresholdOrderDto = MapToOrderDto(minimumThresholdOrder!);
+                return minimumThresholdOrderDto with { ClientSecret = string.Empty };
             }
 
             // Create Stripe PaymentIntent for the order
@@ -549,11 +702,12 @@ public class OrderService(
                 }
             }
 
-            // Get shipping cost
+            // Get shipping cost with promotion logic
             var currency = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
-            var shippingCost = await _shippingService.GetShippingCostAsync(
+            var shippingCost = await _shippingService.GetShippingCostWithPromotionAsync(
                 request.ShippingAddress.Country,
-                currency);
+                currency,
+                subtotal);
 
             var totalAmount = subtotal + shippingCost;
 
@@ -568,6 +722,12 @@ public class OrderService(
                     var discount = Math.Min(wallet.Balance, totalAmount);
                     totalAmount -= discount;
                 }
+            }
+
+            // Ensure total is never negative (cap at 0)
+            if (totalAmount < 0)
+            {
+                totalAmount = 0;
             }
 
             return totalAmount;

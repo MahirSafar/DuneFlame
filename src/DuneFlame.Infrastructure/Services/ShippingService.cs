@@ -112,6 +112,46 @@ public class ShippingService(
     }
 
     /// <summary>
+    /// Gets shipping cost with promotion logic applied.
+    /// Applies free shipping for UAE (AE) orders with subtotal >= 200 AED or >= 55 USD.
+    /// </summary>
+    public async Task<decimal> GetShippingCostWithPromotionAsync(string countryCode, Currency currency, decimal subtotal)
+    {
+        try
+        {
+            // Normalize country code: take first 2 characters (following copilot instructions for language code handling)
+            string normalizedCountryCode = countryCode.Length > 2 ? countryCode.Substring(0, 2) : countryCode;
+
+            // Check if free shipping promotion applies
+            if (normalizedCountryCode.Equals("AE", StringComparison.OrdinalIgnoreCase))
+            {
+                // Determine threshold based on currency (handle both uppercase and lowercase)
+                decimal threshold = currency.ToString().Equals("AED", StringComparison.OrdinalIgnoreCase) ? 200m : 55m;
+
+                // Apply free shipping if subtotal meets or exceeds threshold
+                if (subtotal >= threshold)
+                {
+                    logger.LogInformation(
+                        "Free Shipping Promotion Applied: Country='{CountryCode}', Currency='{Currency}', Subtotal={Subtotal}, Threshold={Threshold}",
+                        normalizedCountryCode, currency, subtotal, threshold);
+                    return 0m;
+                }
+            }
+
+            // Get normal shipping cost if promotion doesn't apply
+            var shippingCost = await GetShippingCostAsync(countryCode, currency);
+            return shippingCost;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Error calculating shipping cost with promotion for country '{CountryCode}' and currency '{Currency}' with subtotal {Subtotal}",
+                countryCode, currency, subtotal);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Converts a rate from one currency to another using the AED/USD conversion rate.
     /// </summary>
     private static decimal ConvertCurrency(decimal amount, Currency fromCurrency, Currency toCurrency, decimal aedToUsdRate)

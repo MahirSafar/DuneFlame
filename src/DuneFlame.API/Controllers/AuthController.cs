@@ -3,6 +3,7 @@ using DuneFlame.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 
 namespace DuneFlame.API.Controllers;
@@ -10,11 +11,12 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/auth")]
 [ApiController]
 [EnableRateLimiting("AuthPolicy")]
-public class AuthController(IAuthService authService, IConfiguration config, IWebHostEnvironment env) : ControllerBase
+public class AuthController(IAuthService authService, IConfiguration config, IWebHostEnvironment env, ILogger<AuthController> logger) : ControllerBase
 {
     private readonly IAuthService _authService = authService;
     private readonly IConfiguration _config = config;
     private readonly IWebHostEnvironment _env = env;
+    private readonly ILogger<AuthController> _logger = logger;
 
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -33,8 +35,39 @@ public class AuthController(IAuthService authService, IConfiguration config, IWe
     [HttpPost("refresh")]
     public async Task<IActionResult> RefreshToken([FromBody] TokenRequest request)
     {
-        var result = await _authService.RefreshTokenAsync(request);
-        return Ok(result);
+        _logger.LogInformation(
+            "[REFRESH] Incoming request - AccessToken length: {AccessTokenLength}, RefreshToken length: {RefreshTokenLength}",
+            request.AccessToken?.Length ?? 0,
+            request.RefreshToken?.Length ?? 0);
+
+        if (string.IsNullOrEmpty(request.AccessToken))
+        {
+            _logger.LogWarning("[REFRESH] AccessToken is null or empty");
+            return BadRequest(new { error = "AccessToken is required" });
+        }
+
+        if (string.IsNullOrEmpty(request.RefreshToken))
+        {
+            _logger.LogWarning("[REFRESH] RefreshToken is null or empty");
+            return BadRequest(new { error = "RefreshToken is required" });
+        }
+
+        _logger.LogInformation(
+            "[REFRESH] CORS headers - Origin: {Origin}, AllowedOrigins: {AllowedOrigins}",
+            Request.Headers["Origin"],
+            string.Join(", ", _config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" }));
+
+        try
+        {
+            var result = await _authService.RefreshTokenAsync(request);
+            _logger.LogInformation("[REFRESH] Token refresh successful for user");
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[REFRESH] Token refresh failed with exception: {ErrorMessage}", ex.Message);
+            throw;
+        }
     }
 
     [HttpPost("logout")]

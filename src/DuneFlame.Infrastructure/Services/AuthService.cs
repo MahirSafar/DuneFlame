@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using System.Security.Authentication;
 using System.Security.Claims;
 
@@ -88,9 +89,32 @@ public class AuthService(
 
     public async Task<AuthResponse> RefreshTokenAsync(TokenRequest request)
     {
+        _logger.LogInformation("[REFRESH-SERVICE] Step 1: Validating AccessToken format and signature...");
+
         // 1. Token validasiyası (Vaxtı bitmiş olsa belə, formatı düzdür?)
-        var principal = _jwtTokenGenerator.GetPrincipalFromExpiredToken(request.AccessToken);
-        if (principal == null) throw new AuthenticationException("Invalid token.");
+        ClaimsPrincipal? principal = null;
+        try
+        {
+            principal = _jwtTokenGenerator.GetPrincipalFromExpiredToken(request.AccessToken);
+        }
+        catch (SecurityTokenException ex)
+        {
+            _logger.LogError("[REFRESH-SERVICE] AccessToken validation failed with SecurityTokenException: {ErrorMessage}", ex.Message);
+            throw new AuthenticationException($"Invalid token: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("[REFRESH-SERVICE] AccessToken validation failed with unexpected exception: {ExceptionType} - {ErrorMessage}", ex.GetType().Name, ex.Message);
+            throw new AuthenticationException("Invalid token.");
+        }
+
+        if (principal == null)
+        {
+            _logger.LogError("[REFRESH-SERVICE] AccessToken validation failed - GetPrincipalFromExpiredToken returned null. Token format or signature may be invalid.");
+            throw new AuthenticationException("Invalid token.");
+        }
+
+        _logger.LogInformation("[REFRESH-SERVICE] AccessToken format is valid. Extracting user ID from claims...");
 
         // Check for userId in both Sub (JWT standard) and NameIdentifier (ASP.NET Identity standard)
         var userId = principal.Claims.FirstOrDefault(c => c.Type == System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value 
@@ -98,63 +122,85 @@ public class AuthService(
 
         if (string.IsNullOrEmpty(userId))
         {
-            _logger.LogWarning("Refresh failed: UserId not found in claims. Available claims: {Claims}", 
+            _logger.LogWarning("[REFRESH-SERVICE] UserId extraction failed. Available claims: {Claims}", 
                 string.Join(", ", principal.Claims.Select(c => $"{c.Type}={c.Value}")));
             throw new AuthenticationException("User not found.");
         }
 
-        _logger.LogInformation("Attempting to refresh token for user ID: {UserId}", userId);
+        _logger.LogInformation("[REFRESH-SERVICE] Step 2: Looking up user in database. UserId: {UserId}", userId);
 
         var user = await _userManager.FindByIdAsync(userId);
 
         if (user == null)
         {
-            _logger.LogError("User not found in database with ID: {UserId}", userId);
+            _logger.LogError("[REFRESH-SERVICE] User lookup failed. UserId not found in database: {UserId}", userId);
             throw new AuthenticationException("User not found.");
         }
 
-        _logger.LogInformation("User found: {Email}. Validating refresh token...", user.Email);
+        _logger.LogInformation("[REFRESH-SERVICE] User found in database: {Email}. Step 3: Validating refresh token in database...", user.Email);
 
         // 2. Refresh token bazada varmı?
+        var utcNow = DateTime.UtcNow;
         var storedRefreshToken = await _context.RefreshTokens
             .Include(x => x.User)
             .FirstOrDefaultAsync(x => x.Token == request.RefreshToken && x.UserId == user.Id);
 
         if (storedRefreshToken == null)
         {
-            _logger.LogWarning("Refresh token not found in database for user {UserId}. Token may have been revoked or expired.", user.Id);
+            _logger.LogWarning("[REFRESH-SERVICE] Refresh token not found in database for UserId: {UserId}. " +
+                "This could mean: (1) Token was never created, (2) Token was revoked, (3) Token hash mismatch, (4) UserId mismatch", 
+                user.Id);
+
+            // Additional debugging: count how many refresh tokens exist for this user
+            var tokenCount = await _context.RefreshTokens.CountAsync(x => x.UserId == user.Id);
+            _logger.LogWarning("[REFRESH-SERVICE] Total refresh tokens in DB for this user: {TokenCount}", tokenCount);
+
             throw new AuthenticationException("Refresh token not found.");
         }
 
+        _logger.LogInformation("[REFRESH-SERVICE] Refresh token found in database. Checking validity...");
+
         if (storedRefreshToken.User == null)
         {
-            _logger.LogError("Stored refresh token has null User reference for UserId {UserId}. Database integrity issue.", user.Id);
+            _logger.LogError("[REFRESH-SERVICE] Database integrity issue: Stored refresh token has null User reference for UserId: {UserId}", user.Id);
             throw new AuthenticationException("Invalid refresh token state.");
         }
 
         // 3. Check if token is active or within grace period after revocation
         var gracePeriod = TimeSpan.FromSeconds(_jwtSettings.RefreshTokenRevocationGracePeriodSeconds);
         bool isWithinGracePeriod = storedRefreshToken.Revoked.HasValue && 
-                                   (DateTime.UtcNow - storedRefreshToken.Revoked.Value) < gracePeriod;
+                                   (utcNow - storedRefreshToken.Revoked.Value) < gracePeriod;
+
+        _logger.LogInformation("[REFRESH-SERVICE] Token validity check - " +
+            "Expires: {Expires} (UTC), Now: {Now} (UTC), IsExpired: {IsExpired}, " +
+            "Revoked: {Revoked}, IsRevoked: {IsRevoked}, WithinGracePeriod: {WithinGracePeriod}, " +
+            "IsActive: {IsActive}, GracePeriod: {GracePeriodSeconds}s",
+            storedRefreshToken.Expires,
+            utcNow,
+            storedRefreshToken.IsExpired,
+            storedRefreshToken.Revoked,
+            storedRefreshToken.Revoked.HasValue,
+            isWithinGracePeriod,
+            storedRefreshToken.IsActive,
+            _jwtSettings.RefreshTokenRevocationGracePeriodSeconds);
 
         if (!storedRefreshToken.IsActive && !isWithinGracePeriod)
         {
-            _logger.LogWarning(
-                "Refresh token rejected for user {UserId}: expired or revoked more than {GracePeriod}s ago (revoked at {RevokedAt})",
-                user.Id, _jwtSettings.RefreshTokenRevocationGracePeriodSeconds, storedRefreshToken.Revoked);
+            string failureReason = storedRefreshToken.IsExpired 
+                ? $"Token expired at {storedRefreshToken.Expires:O}" 
+                : $"Token was revoked at {storedRefreshToken.Revoked:O} (outside {_jwtSettings.RefreshTokenRevocationGracePeriodSeconds}s grace period)";
+
+            _logger.LogWarning("[REFRESH-SERVICE] Token rejected - Reason: {FailureReason}", failureReason);
             throw new AuthenticationException("Invalid or expired refresh token.");
         }
 
         // 4. If token was already revoked (within grace period), check if a newer token exists
         if (storedRefreshToken.Revoked.HasValue && isWithinGracePeriod)
         {
-            _logger.LogInformation(
-                "Refresh token reuse detected within grace period for user {UserId}. Checking for replacement token...",
-                user.Id);
+            _logger.LogInformation("[REFRESH-SERVICE] Refresh token reuse detected within grace period for UserId: {UserId}. " +
+                "Checking for replacement token (idempotent response)...", user.Id);
 
             // Get the most recent active refresh token for this user
-            // Query using DateTime.UtcNow for expiration check (not IsExpired property which EF can't translate)
-            var utcNow = DateTime.UtcNow;
             var newestToken = await _context.RefreshTokens
                 .Where(x => x.UserId == user.Id && x.Expires > utcNow && x.Revoked == null)
                 .OrderByDescending(x => x.CreatedAt)
@@ -162,9 +208,7 @@ public class AuthService(
 
             if (newestToken != null)
             {
-                _logger.LogInformation(
-                    "Returning existing active token (idempotent response) for user {UserId}",
-                    user.Id);
+                _logger.LogInformation("[REFRESH-SERVICE] Found replacement active token. Returning existing token (idempotent) for UserId: {UserId}", user.Id);
 
                 // Return the newest active token for this user (idempotent response)
                 var roles = await _userManager.GetRolesAsync(user);
@@ -180,16 +224,25 @@ public class AuthService(
                     roles.ToList()
                 );
             }
+            else
+            {
+                _logger.LogWarning("[REFRESH-SERVICE] No replacement active token found. Will proceed to issue new token.");
+            }
         }
 
         // 5. Token is valid and active - revoke it and issue new tokens
-        storedRefreshToken.Revoked = DateTime.UtcNow;
+        _logger.LogInformation("[REFRESH-SERVICE] Step 4: Token is valid. Revoking old token and issuing new ones for UserId: {UserId}", user.Id);
+
+        storedRefreshToken.Revoked = utcNow;
         _context.RefreshTokens.Update(storedRefreshToken);
         await _context.SaveChangesAsync();
 
+        _logger.LogInformation("[REFRESH-SERVICE] Old token revoked. Step 5: Generating new tokens...");
+
         // 6. Generate new tokens
-        _logger.LogInformation("Successfully refreshed token for user {UserId}", user.Id);
-        return await GenerateAuthResponseAsync(user);
+        var response = await GenerateAuthResponseAsync(user);
+        _logger.LogInformation("[REFRESH-SERVICE] Token refresh completed successfully for UserId: {UserId}", user.Id);
+        return response;
     }
 
     public async Task LogoutAsync(string userId)

@@ -80,17 +80,33 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             // out SecurityToken parametrini düzgün idarə edirik
             var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out SecurityToken securityToken);
 
-            if (securityToken is not JwtSecurityToken jwtSecurityToken ||
-                !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+            if (securityToken is not JwtSecurityToken jwtSecurityToken)
             {
-                throw new SecurityTokenException("Invalid token");
+                throw new SecurityTokenException("Token is not a valid JWT");
+            }
+
+            if (!jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+            {
+                throw new SecurityTokenException($"Invalid algorithm. Expected {SecurityAlgorithms.HmacSha256}, got {jwtSecurityToken.Header.Alg}");
             }
 
             return principal;
         }
-        catch
+        catch (SecurityTokenMalformedException ex)
         {
-            return null;
+            throw new SecurityTokenException("Token format is invalid (malformed)", ex);
+        }
+        catch (SecurityTokenInvalidSignatureException ex)
+        {
+            throw new SecurityTokenException("Token signature is invalid", ex);
+        }
+        catch (SecurityTokenInvalidAlgorithmException ex)
+        {
+            throw new SecurityTokenException("Token algorithm is invalid", ex);
+        }
+        catch (Exception ex)
+        {
+            throw new SecurityTokenException($"Token validation failed: {ex.GetType().Name} - {ex.Message}", ex);
         }
     }
 }

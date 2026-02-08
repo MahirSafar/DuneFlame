@@ -18,6 +18,16 @@ public interface IShippingService
     /// <returns>The shipping cost in the specified currency, or 0 if not found.</returns>
     Task<decimal> GetShippingCostAsync(string countryCode, Currency currency);
 
+    /// <summary>
+    /// Gets the shipping cost with promotion logic applied.
+    /// Applies free shipping for UAE (AE) orders with subtotal >= 200 AED or >= 55 USD.
+    /// </summary>
+    /// <param name="countryCode">ISO 3166-1 alpha-2 country code (e.g., "US", "AE", "CA").</param>
+    /// <param name="currency">The currency for shipping cost (USD or AED).</param>
+    /// <param name="subtotal">The order subtotal to check against promotion thresholds.</param>
+    /// <returns>The shipping cost in the specified currency (0 if promotion applies), or regular cost otherwise.</returns>
+    Task<decimal> GetShippingCostWithPromotionAsync(string countryCode, Currency currency, decimal subtotal);
+
     // ===== COUNTRY OPERATIONS =====
 
     /// <summary>

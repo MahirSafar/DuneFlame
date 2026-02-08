@@ -53,6 +53,23 @@ public class PaymentController(
                 return BadRequest(new { message = "Basket is empty or not found" });
             }
 
+            // ZERO-PAYMENT / DUMMY ID CHECK: If basket already has an internal payment intent ID,
+            // it means the order was created with rewards covering the entire amount.
+            // Return immediately without calling Stripe.
+            if (!string.IsNullOrEmpty(basket.PaymentIntentId) && 
+                (basket.PaymentIntentId == "internal_reward_payment" || 
+                 basket.PaymentIntentId == "internal_minimum_threshold" ||
+                 basket.PaymentIntentId.StartsWith("internal_")))
+            {
+                var internalResponse = new DuneFlame.Application.DTOs.Payment.PaymentIntentDto(
+                    ClientSecret: string.Empty,
+                    PaymentIntentId: basket.PaymentIntentId,
+                    Amount: 0,
+                    PaymentNotRequired: true);
+
+                return Ok(internalResponse);
+            }
+
             // Calculate total amount from basket items
             decimal totalAmount = 0;
             foreach (var item in basket.Items)
@@ -60,6 +77,8 @@ public class PaymentController(
                 totalAmount += item.Price * item.Quantity;
             }
 
+            // ZERO-AMOUNT CHECK: If total is 0 or negative (shouldn't happen if order was created properly,
+            // but this is a safety check), return without calling Stripe
             if (totalAmount <= 0)
             {
                 return BadRequest(new { message = "Invalid basket total" });
@@ -70,6 +89,10 @@ public class PaymentController(
                 basketId,
                 totalAmount,
                 basket.CurrencyCode.ToString().ToLower());
+
+            // Check if this is an internal payment intent (zero-payment order)
+            bool paymentNotRequired = string.IsNullOrEmpty(paymentIntent.ClientSecret) && 
+                (paymentIntent.PaymentIntentId.StartsWith("internal_"));
 
             // Sync PaymentIntentId with the latest pending order for this user
             // Find the most recently created pending order and update it with the PaymentIntentId
@@ -88,7 +111,8 @@ public class PaymentController(
             var response = new DuneFlame.Application.DTOs.Payment.PaymentIntentDto(
                 paymentIntent.ClientSecret,
                 paymentIntent.PaymentIntentId,
-                totalAmount);
+                paymentIntent.Amount,
+                PaymentNotRequired: paymentNotRequired);
 
             return Ok(response);
         }
@@ -178,4 +202,56 @@ public class PaymentController(
                             return BadRequest(new { message = "Failed to create payment intent", error = ex.Message });
                         }
                     }
-                }
+
+    /// <summary>
+    /// Create a Stripe Checkout Session for a product
+    /// POST /api/v1/payments/checkout-session
+    /// </summary>
+    [HttpPost("checkout-session")]
+    [EnableRateLimiting("CheckoutPolicy")]
+    public async Task<IActionResult> CreateCheckoutSession([FromBody] CreateCheckoutSessionRequest request)
+    {
+        try
+        {
+            if (request == null || string.IsNullOrEmpty(request.ItemCode))
+            {
+                return BadRequest(new { message = "ItemCode is required" });
+            }
+
+            if (request.Quantity <= 0)
+            {
+                return BadRequest(new { message = "Quantity must be greater than zero" });
+            }
+
+            if (string.IsNullOrEmpty(request.SuccessUrl) || string.IsNullOrEmpty(request.CancelUrl))
+            {
+                return BadRequest(new { message = "SuccessUrl and CancelUrl are required" });
+            }
+
+            var userId = GetUserId();
+
+            // Create a temporary order for tracking
+            // In a real scenario, you might want to create this in a separate transaction
+            var orderId = Guid.NewGuid();
+
+            // Create Checkout Session with product ItemCode
+            var sessionId = await _paymentService.CreateCheckoutSessionAsync(
+                itemCode: request.ItemCode,
+                quantity: request.Quantity,
+                orderId: orderId,
+                basketId: null,
+                successUrl: request.SuccessUrl,
+                cancelUrl: request.CancelUrl);
+
+            return Ok(new { sessionId = sessionId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = "Failed to create checkout session", error = ex.Message });
+        }
+    }
+}

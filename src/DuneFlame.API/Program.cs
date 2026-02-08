@@ -3,6 +3,7 @@ using DuneFlame.Application.Interfaces;
 using DuneFlame.Application.Validators;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Authentication;
+using DuneFlame.Infrastructure.Configuration;
 using DuneFlame.Infrastructure.Persistence;
 using DuneFlame.Infrastructure.Services;
 using FluentValidation;
@@ -94,6 +95,7 @@ builder.Configuration.Bind(JwtSettings.SectionName, jwtSettings);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection(StripeSettings.SectionName));
+builder.Services.Configure<ClientUrls>(builder.Configuration.GetSection(ClientUrls.SectionName));
 
 // === CRITICAL: HTTP CONTEXT & CURRENCY PROVIDER ===
 builder.Services.AddHttpContextAccessor();

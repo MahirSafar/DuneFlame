@@ -404,6 +404,15 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 
+# App settings - Only ignore environment-specific files, keep base appsettings.json
+# Base configuration file should be committed
+!appsettings.json
+# Environment-specific overrides should be ignored
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.json
+!appsettings.json
+
 ##
 ## Visual studio for Mac
 ##
@@ -482,6 +491,3 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-# App settings (sensitive info)
-appsettings.json
-appsettings.Development.json
