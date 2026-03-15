@@ -458,40 +458,55 @@ public class OrderService(
                 return minimumThresholdOrderDto with { ClientSecret = string.Empty };
             }
 
-            // Create Stripe PaymentIntent for the order
-            // Convert currency to lowercase (Stripe requirement: "usd", "aed")
-            // NOTE: We pass BasketId so it can be stored in metadata for webhook to clean up basket after payment success
-            var stripePaymentIntent = await _paymentService.CreatePaymentIntentAsync(
-                order.TotalAmount,
-                order.CurrencyCode.ToString().ToLower(),
-                order.Id,
-                request.BasketId);
-
-            // Update order with PaymentIntentId from Stripe
-            order.PaymentIntentId = stripePaymentIntent.PaymentIntentId;
-            _context.Orders.Update(order);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "Stripe PaymentIntent created for Order {OrderId}: PaymentIntentId={PaymentIntentId}, Amount={Amount} {Currency}",
-                order.Id, stripePaymentIntent.PaymentIntentId, order.TotalAmount, order.CurrencyCode);
-
-            // IMPORTANT: Save PaymentIntentId to basket in Redis for idempotency check on retry
-            // This ensures that if user retries after canceling payment modal, idempotency check finds the existing order
-            try
+            // If basket already has a valid Stripe PaymentIntent (Express Checkout flow), reuse it
+            // to avoid creating a duplicate PI that would never match the one the user already paid.
+            // Otherwise, create a new PaymentIntent (traditional checkout flow).
+            PaymentIntentResponse stripePaymentIntent;
+            if (!string.IsNullOrEmpty(order.PaymentIntentId) && order.PaymentIntentId.StartsWith("pi_"))
             {
-                basket.PaymentIntentId = stripePaymentIntent.PaymentIntentId;
-                await _basketService.UpdateBasketAsync(basket);
                 _logger.LogInformation(
-                    "Basket {BasketId} updated with PaymentIntentId {PaymentIntentId} for idempotency check",
-                    request.BasketId, stripePaymentIntent.PaymentIntentId);
+                    "Reusing existing PaymentIntent {PaymentIntentId} for Order {OrderId} (Express Checkout flow)",
+                    order.PaymentIntentId, order.Id);
+
+                stripePaymentIntent = await _paymentService.GetPaymentIntentAsync(order.PaymentIntentId);
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogWarning(ex, 
-                    "Failed to update basket {BasketId} with PaymentIntentId. Idempotency check may not work on retry, but order is still created.",
+                // Create Stripe PaymentIntent for the order
+                // Convert currency to lowercase (Stripe requirement: "usd", "aed")
+                // NOTE: We pass BasketId so it can be stored in metadata for webhook to clean up basket after payment success
+                stripePaymentIntent = await _paymentService.CreatePaymentIntentAsync(
+                    order.TotalAmount,
+                    order.CurrencyCode.ToString().ToLower(),
+                    order.Id,
                     request.BasketId);
-                // Non-critical failure - order is already created
+
+                // Update order with PaymentIntentId from Stripe
+                order.PaymentIntentId = stripePaymentIntent.PaymentIntentId;
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Stripe PaymentIntent created for Order {OrderId}: PaymentIntentId={PaymentIntentId}, Amount={Amount} {Currency}",
+                    order.Id, stripePaymentIntent.PaymentIntentId, order.TotalAmount, order.CurrencyCode);
+
+                // IMPORTANT: Save PaymentIntentId to basket in Redis for idempotency check on retry
+                // This ensures that if user retries after canceling payment modal, idempotency check finds the existing order
+                try
+                {
+                    basket.PaymentIntentId = stripePaymentIntent.PaymentIntentId;
+                    await _basketService.UpdateBasketAsync(basket);
+                    _logger.LogInformation(
+                        "Basket {BasketId} updated with PaymentIntentId {PaymentIntentId} for idempotency check",
+                        request.BasketId, stripePaymentIntent.PaymentIntentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to update basket {BasketId} with PaymentIntentId. Idempotency check may not work on retry, but order is still created.",
+                        request.BasketId);
+                    // Non-critical failure - order is already created
+                }
             }
 
             // NOTE: Basket cleanup is now handled in WebhookController.HandlePaymentIntentSucceeded

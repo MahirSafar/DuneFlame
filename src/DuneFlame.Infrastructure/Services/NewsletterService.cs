@@ -1,16 +1,24 @@
-﻿using DuneFlame.Application.DTOs.User;
+﻿using DuneFlame.Application.DTOs.Common;
+using DuneFlame.Application.DTOs.User;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Infrastructure.Configuration;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DuneFlame.Infrastructure.Services;
 
-public class NewsletterService(AppDbContext context, IEmailService emailService, ILogger<NewsletterService> logger) : INewsletterService
+public class NewsletterService(
+    AppDbContext context, 
+    IEmailService emailService, 
+    IOptions<ClientUrls> clientUrls,
+    ILogger<NewsletterService> logger) : INewsletterService
 {
     private readonly AppDbContext _context = context;
     private readonly IEmailService _emailService = emailService;
+    private readonly ClientUrls _clientUrls = clientUrls.Value;
     private readonly ILogger<NewsletterService> _logger = logger;
     public async Task SubscribeAsync(NewsletterRequest request)
     {
@@ -19,32 +27,24 @@ public class NewsletterService(AppDbContext context, IEmailService emailService,
 
         if (existing != null)
         {
-            if (existing.IsVerified) return; // Artıq abunədir
-            // Təsdiqləməyibsə, maili təkrar göndər
+            // Already subscribed - do nothing
+            _logger.LogInformation("Newsletter subscription attempt for already subscribed email: {Email}", request.Email);
+            return;
         }
 
-        var token = Guid.NewGuid().ToString("N");
-
-        if (existing == null)
+        // Auto-verify: Single opt-in approach
+        var sub = new NewsletterSubscription
         {
-            var sub = new NewsletterSubscription
-            {
-                Email = request.Email,
-                VerificationToken = token,
-                IsVerified = false,
-                Source = "API"
-            };
-            await _context.NewsletterSubscriptions.AddAsync(sub);
-        }
-        else
-        {
-            existing.VerificationToken = token; // Tokeni yenilə
-        }
+            Email = request.Email,
+            IsVerified = true,
+            UnsubscribeToken = Guid.NewGuid().ToString("N"),
+            Source = "API"
+        };
 
+        await _context.NewsletterSubscriptions.AddAsync(sub);
         await _context.SaveChangesAsync();
 
-        // Mail göndər (Bunu IEmailService-ə əlavə etməliyik, aşağıda edəcəyik)
-        await _emailService.SendNewsletterVerificationAsync(request.Email, token);
+        _logger.LogInformation("New newsletter subscription created and auto-verified: {Email}", request.Email);
     }
 
     public async Task<bool> VerifyEmailAsync(string token)
@@ -89,7 +89,7 @@ public class NewsletterService(AppDbContext context, IEmailService emailService,
 
         foreach (var sub in subscribers)
         {
-            var unsubscribeLink = $"https://localhost:7190/api/v1/newsletter/unsubscribe?token={sub.UnsubscribeToken}";
+            var unsubscribeLink = $"{_clientUrls.ApiBaseUrl}/api/v1/newsletter/unsubscribe?token={sub.UnsubscribeToken}";
             var footer = $"<br/><hr/><small>Don't want these emails? <a href='{unsubscribeLink}'>Unsubscribe</a></small>";
 
             try
@@ -107,5 +107,31 @@ public class NewsletterService(AppDbContext context, IEmailService emailService,
         }
 
         _logger.LogInformation("Newsletter sending completed. Success: {Success}, Failed: {Failed}", successCount, failureCount);
+    }
+
+    public async Task<PagedResult<NewsletterSubscription>> GetAllSubscribersAsync(int pageNumber, int pageSize, string? search)
+    {
+        var query = _context.NewsletterSubscriptions.AsQueryable();
+
+        // Apply search filter if provided
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(s => s.Email.Contains(search));
+        }
+
+        // Get total count
+        var totalCount = await query.CountAsync();
+
+        // Calculate total pages
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        // Get paginated items, sorted by CreatedAt descending
+        var items = await query
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return new PagedResult<NewsletterSubscription>(items, totalCount, pageNumber, pageSize, totalPages);
     }
 }

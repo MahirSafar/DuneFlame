@@ -160,7 +160,7 @@ public class ProductService(
                     foreach (var translation in flavourNote.Translations)
                     {
                         // Normalize language code to 2-char format (e.g., "en-US" → "en")
-                        var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode) 
+                        var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode)
                             ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
                             : "en";
 
@@ -275,7 +275,7 @@ public class ProductService(
                     .Include(p => p.GrindTypes)
                     .Include(p => p.FlavourNotes)
                         .ThenInclude(fn => fn.Translations)
-                    .FirstOrDefaultAsync(p => p.Id == id, cancellationToken) 
+                    .FirstOrDefaultAsync(p => p.Id == id, cancellationToken)
                     ?? throw new NotFoundException($"Product with ID {id} not found.");
 
                 return MapToResponse(product, currentCurrency, languageCode);
@@ -429,9 +429,9 @@ public class ProductService(
                 {
                     var min = minPrice ?? 0;
                     var max = maxPrice ?? decimal.MaxValue;
-                    query = query.Where(p => p.Prices.Any(pr => 
-                        pr.CurrencyCode == currentCurrency && 
-                        pr.Price >= min && 
+                    query = query.Where(p => p.Prices.Any(pr =>
+                        pr.CurrencyCode == currentCurrency &&
+                        pr.Price >= min &&
                         pr.Price <= max));
 
                     _logger.LogInformation("Applied price filter: {MinPrice} - {MaxPrice} for currency {Currency}", min, max, currentCurrency);
@@ -466,396 +466,744 @@ public class ProductService(
                     tags: new[] { cacheTag }
                 );
 
-                return result;
-            }
+        return result;
+    }
 
-                                    public async Task<PagedResult<ProductResponse>> GetAllAdminAsync(
-                                                        int pageNumber = 1,
-                                                        int pageSize = 10,
-                                                        string? sortBy = null,
-                                                        string? search = null,
-                                                        Guid? categoryId = null,
-                                                        decimal? minPrice = null,
-                                                        decimal? maxPrice = null,
-                                                        Guid[]? roastLevelIds = null,
-                                                        Guid[]? originIds = null)
-                                                    {
-                                                        if (pageNumber < 1) pageNumber = 1;
-                                                        if (pageSize < 1) pageSize = 10;
-                                                        if (pageSize > 100) pageSize = 100;
+    public async Task<PagedResult<ProductResponse>> GetAllAdminAsync(
+                        int pageNumber = 1,
+                        int pageSize = 10,
+                        string? sortBy = null,
+                        string? search = null,
+                        Guid? categoryId = null,
+                        decimal? minPrice = null,
+                        decimal? maxPrice = null,
+                        Guid[]? roastLevelIds = null,
+                        Guid[]? originIds = null)
+    {
+        if (pageNumber < 1) pageNumber = 1;
+        if (pageSize < 1) pageSize = 10;
+        if (pageSize > 100) pageSize = 100;
 
-                                                        var currentCurrency = _currencyProvider.GetCurrentCurrency();
-                                                        var languageCode = ExtractLanguageFromRequest();
+        var currentCurrency = _currencyProvider.GetCurrentCurrency();
+        var languageCode = ExtractLanguageFromRequest();
 
-                                                        var roastLevelIdsCacheKey = roastLevelIds != null ? string.Join(",", roastLevelIds.OrderBy(x => x)) : "null";
-                                                        var originIdsCacheKey = originIds != null ? string.Join(",", originIds.OrderBy(x => x)) : "null";
-                                                        var cacheKey = $"{ProductCacheKeyPrefix}:admin:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
-                                                        var cacheTag = $"{ProductTagPrefix}:admin-list";
+        var roastLevelIdsCacheKey = roastLevelIds != null ? string.Join(",", roastLevelIds.OrderBy(x => x)) : "null";
+        var originIdsCacheKey = originIds != null ? string.Join(",", originIds.OrderBy(x => x)) : "null";
+        var cacheKey = $"{ProductCacheKeyPrefix}:admin:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
+        var cacheTag = $"{ProductTagPrefix}:admin-list";
 
-                                                var result = await _cache.GetOrCreateAsync(
-                                                    cacheKey,
-                                                    async (cancellationToken) =>
-                                                    {
-                                                        var query = _context.Products
-                                                            .Include(p => p.Category)
-                                                                .ThenInclude(c => c.Translations)
-                                                            .Include(p => p.Translations)
-                                                            .Include(p => p.Origin)
-                                                            .Include(p => p.Images)
-                                                            .Include(p => p.Prices)
-                                                                .ThenInclude(pr => pr.Weight)
-                                                            .Include(p => p.RoastLevels)
-                                                            .Include(p => p.GrindTypes)
-                                                            .Include(p => p.FlavourNotes)
-                                                                .ThenInclude(fn => fn.Translations)
-                                                            .AsQueryable();
+        var result = await _cache.GetOrCreateAsync(
+            cacheKey,
+            async (cancellationToken) =>
+            {
+                var query = _context.Products
+                    .Include(p => p.Category)
+                        .ThenInclude(c => c.Translations)
+                    .Include(p => p.Translations)
+                    .Include(p => p.Origin)
+                    .Include(p => p.Images)
+                    .Include(p => p.Prices)
+                        .ThenInclude(pr => pr.Weight)
+                    .Include(p => p.RoastLevels)
+                    .Include(p => p.GrindTypes)
+                    .Include(p => p.FlavourNotes)
+                        .ThenInclude(fn => fn.Translations)
+                    .AsQueryable();
 
-                                                        if (categoryId.HasValue)
-                                                        {
-                                                            query = query.Where(p => p.CategoryId == categoryId.Value);
-                                                        }
+                if (categoryId.HasValue)
+                {
+                    query = query.Where(p => p.CategoryId == categoryId.Value);
+                }
 
-                                                        if (!string.IsNullOrWhiteSpace(search))
-                                                        {
-                                                            query = query.Where(p =>
-                                                                p.Translations.Any(t => t.Name.Contains(search)) ||
-                                                                p.Translations.Any(t => t.Description.Contains(search)));
-                                                        }
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    query = query.Where(p =>
+                        p.Translations.Any(t => t.Name.Contains(search)) ||
+                        p.Translations.Any(t => t.Description.Contains(search)));
+                }
 
-                                                        // Filter by Roast Levels (BEFORE pagination)
-                                                        if (roastLevelIds != null && roastLevelIds.Length > 0)
-                                                        {
-                                                            query = query.Where(p =>
-                                                                p.RoastLevels.Any(r => roastLevelIds.Contains(r.Id)));
-                                                        }
+                // Filter by Roast Levels (BEFORE pagination)
+                if (roastLevelIds != null && roastLevelIds.Length > 0)
+                {
+                    query = query.Where(p =>
+                        p.RoastLevels.Any(r => roastLevelIds.Contains(r.Id)));
+                }
 
-                                                        // Filter by Origins (BEFORE pagination)
-                                                        if (originIds != null && originIds.Length > 0)
-                                                        {
-                                                            query = query.Where(p =>
-                                                                originIds.Contains(p.OriginId.Value));
-                                                        }
+                // Filter by Origins (BEFORE pagination)
+                if (originIds != null && originIds.Length > 0)
+                {
+                    query = query.Where(p =>
+                        originIds.Contains(p.OriginId.Value));
+                }
 
-                                                        // Extended Sorting Support
-                                                        query = sortBy?.ToLower() switch
-                                                        {
-                                                            "stock-asc" => query.OrderBy(p => p.StockInKg),
-                                                            "stock-desc" => query.OrderByDescending(p => p.StockInKg),
-                                                            "date-asc" => query.OrderBy(p => p.CreatedAt),
-                                                            "date-desc" => query.OrderByDescending(p => p.CreatedAt),
-                                                            "name-asc" => query.OrderBy(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
-                                                            "name-desc" => query.OrderByDescending(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
-                                                            "price-asc" => query.OrderBy(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
-                                                            "price-desc" => query.OrderByDescending(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
-                                                            _ => query.OrderByDescending(p => p.CreatedAt)
-                                                        };
+                // Extended Sorting Support
+                query = sortBy?.ToLower() switch
+                {
+                    "stock-asc" => query.OrderBy(p => p.StockInKg),
+                    "stock-desc" => query.OrderByDescending(p => p.StockInKg),
+                    "date-asc" => query.OrderBy(p => p.CreatedAt),
+                    "date-desc" => query.OrderByDescending(p => p.CreatedAt),
+                    "name-asc" => query.OrderBy(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
+                    "name-desc" => query.OrderByDescending(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
+                    "price-asc" => query.OrderBy(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
+                    "price-desc" => query.OrderByDescending(p => p.Prices.FirstOrDefault(pr => pr.CurrencyCode == currentCurrency).Price),
+                    _ => query.OrderByDescending(p => p.CreatedAt)
+                };
 
-                                                        // Apply price filter only if a specific range is requested (not the default 0-100)
-                                                        // This allows all products to load initially on the admin page
-                                                        if ((minPrice.HasValue && minPrice.Value > 0) || (maxPrice.HasValue && maxPrice.Value < 10000))
-                                                        {
-                                                            var min = minPrice ?? 0;
-                                                            var max = maxPrice ?? decimal.MaxValue;
-                                                            query = query.Where(p => p.Prices.Any(pr => 
-                                                                pr.CurrencyCode == currentCurrency && 
-                                                                pr.Price >= min && 
-                                                                pr.Price <= max));
+                // Apply price filter only if a specific range is requested (not the default 0-100)
+                // This allows all products to load initially on the admin page
+                if ((minPrice.HasValue && minPrice.Value > 0) || (maxPrice.HasValue && maxPrice.Value < 10000))
+                {
+                    var min = minPrice ?? 0;
+                    var max = maxPrice ?? decimal.MaxValue;
+                    query = query.Where(p => p.Prices.Any(pr =>
+                        pr.CurrencyCode == currentCurrency &&
+                        pr.Price >= min &&
+                        pr.Price <= max));
 
-                                                            _logger.LogInformation("Applied price filter (admin): {MinPrice} - {MaxPrice} for currency {Currency}", min, max, currentCurrency);
-                                                        }
-                                                        else
-                                                        {
-                                                            _logger.LogInformation("Skipping price filter (admin, default range). Loading all products for currency {Currency}", currentCurrency);
-                                                        }
+                    _logger.LogInformation("Applied price filter (admin): {MinPrice} - {MaxPrice} for currency {Currency}", min, max, currentCurrency);
+                }
+                else
+                {
+                    _logger.LogInformation("Skipping price filter (admin, default range). Loading all products for currency {Currency}", currentCurrency);
+                }
 
-                                                        var totalCount = await query.CountAsync(cancellationToken);
-                                                        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+                var totalCount = await query.CountAsync(cancellationToken);
+                var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-                                                        var products = await query
-                                                            .Skip((pageNumber - 1) * pageSize)
-                                                            .Take(pageSize)
-                                                            .ToListAsync(cancellationToken);
+                var products = await query
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync(cancellationToken);
 
-                                                        var responses = products.Select(p => MapToResponse(p, currentCurrency, languageCode)).ToList();
+                var responses = products.Select(p => MapToResponse(p, currentCurrency, languageCode)).ToList();
 
-                                                        return new PagedResult<ProductResponse>(
-                                                            responses,
-                                                            totalCount,
-                                                            pageNumber,
-                                                            pageSize,
-                                                            totalPages
-                                                        );
-                                                    },
-                                                            new HybridCacheEntryOptions
-                                                            {
-                                                                Expiration = TimeSpan.FromSeconds(1) // Reduced to 1 second to bypass stale cache during testing
-                                                            },
-                                                            tags: new[] { cacheTag }
-                                                        );
-
-                                                        return result;
-                                                    }
-
-                    public async Task UpdateAsync(Guid id, UpdateProductRequest request)
+                return new PagedResult<ProductResponse>(
+                    responses,
+                    totalCount,
+                    pageNumber,
+                    pageSize,
+                    totalPages
+                );
+            },
+                    new HybridCacheEntryOptions
                     {
-                        var product = await _context.Products
-                            .Include(p => p.Images)
-                            .Include(p => p.Prices)
-                            .Include(p => p.Translations)
-                            .Include(p => p.RoastLevels)
-                            .Include(p => p.GrindTypes)
-                            .Include(p => p.FlavourNotes)
-                                .ThenInclude(fn => fn.Translations)
-                            .AsSplitQuery()
-                            .FirstOrDefaultAsync(p => p.Id == id) ?? throw new NotFoundException($"Product with ID {id} not found.");
+                        Expiration = TimeSpan.FromSeconds(1) // Reduced to 1 second to bypass stale cache during testing
+                    },
+                    tags: new[] { cacheTag }
+                );
 
-                        // Capture the old name BEFORE clearing translations
-                        // Prefer English translation, fallback to first available translation
-                        var oldNameTranslation = product.Translations.FirstOrDefault(t => t.LanguageCode == "en")
-                            ?? product.Translations.FirstOrDefault();
-                        var oldName = oldNameTranslation?.Name ?? string.Empty;
+        return result;
+    }
 
-                        // Handle image deletion
-                        if (request.DeletedImageIds != null && request.DeletedImageIds.Count > 0)
+    public async Task UpdateAsync(Guid id, UpdateProductRequest request)
+    {
+        // Strategy: Update operations in isolated transactions to avoid concurrency conflicts
+        // Each operation targets a specific collection without loading unnecessary data
+
+        // Step 1: Update Flavour Notes (isolated from Price/Product updates)
+        if (request.FlavourNotes != null)
+        {
+            await UpdateFlavourNotesAsync(id, request.FlavourNotes);
+        }
+
+        // Step 2: Update Prices (isolated from FlavourNote/Product updates)
+        if (request.Prices != null)
+        {
+            await UpdatePricesAsync(id, request.Prices);
+        }
+
+        // Step 3: Update Product metadata and relationships (basic properties, translations, M2M)
+        // This no longer touches Prices or FlavourNotes collections
+        await UpdateProductMetadataAsync(id, request);
+
+        // Invalidate all caches for this product
+        var product = await _context.Products.Select(p => new { p.Id, p.Slug }).FirstOrDefaultAsync(p => p.Id == id);
+        if (product != null)
+        {
+            await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{id}");
+            await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");
+        }
+    }
+
+    private async Task UpdateFlavourNotesAsync(Guid productId, List<FlavourNoteCreateDto> requestNotes)
+    {
+        // This method operates ONLY on FlavourNotes table
+        // No Product entity loading, no concurrency conflicts with Prices
+
+        try
+        {
+            // Get existing notes for this product
+            var existingNotes = await _context.FlavourNotes
+                .Include(fn => fn.Translations)
+                .Where(fn => fn.ProductId == productId)
+                .ToListAsync();
+
+            // Identify which notes to remove
+            var requestedNoteNames = requestNotes.Select(fn => fn.Name).ToHashSet();
+            var notesToRemove = existingNotes
+                .Where(fn => !requestedNoteNames.Contains(fn.Name))
+                .ToList();
+
+            // Remove notes not in request
+            _context.FlavourNotes.RemoveRange(notesToRemove);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Removed {Count} flavour notes from product {ProductId}",
+                notesToRemove.Count, productId);
+
+            // Update or add flavour notes
+            foreach (var requestNote in requestNotes)
+            {
+                var existingNote = existingNotes.FirstOrDefault(fn => fn.Name == requestNote.Name);
+
+                if (existingNote != null)
+                {
+                    // Update existing note
+                    existingNote.DisplayOrder = requestNote.DisplayOrder;
+
+                    // Update translations
+                    if (requestNote.Translations != null && requestNote.Translations.Count > 0)
+                    {
+                        var incomingLangs = requestNote.Translations
+                            .Select(t => !string.IsNullOrWhiteSpace(t.LanguageCode)
+                                ? t.LanguageCode.Substring(0, Math.Min(2, t.LanguageCode.Length)).ToLower()
+                                : "en")
+                            .ToHashSet();
+
+                        var transToRemove = existingNote.Translations
+                            .Where(t => !incomingLangs.Contains(t.LanguageCode))
+                            .ToList();
+
+                        _context.FlavourNoteTranslations.RemoveRange(transToRemove);
+
+                        foreach (var translation in requestNote.Translations)
                         {
-                            var imagesToDelete = product.Images
-                                .Where(img => request.DeletedImageIds.Contains(img.Id))
-                                .ToList();
+                            var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode)
+                                ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
+                                : "en";
 
-                            foreach (var image in imagesToDelete)
+                            var existingTrans = existingNote.Translations
+                                .FirstOrDefault(t => t.LanguageCode == normalizedLanguageCode);
+
+                            if (existingTrans != null)
                             {
-                                _fileService.DeleteFile(image.ImageUrl);
-                                product.Images.Remove(image);
+                                existingTrans.Name = translation.Name;
                             }
-                        }
-
-                        // Set main image
-                        if (request.SetMainImageId.HasValue)
-                        {
-                            var targetImage = product.Images.FirstOrDefault(img => img.Id == request.SetMainImageId.Value) 
-                                ?? throw new NotFoundException($"Image with ID {request.SetMainImageId.Value} not found for this product.");
-                            foreach (var img in product.Images)
+                            else
                             {
-                                img.IsMain = false;
-                            }
-
-                            targetImage.IsMain = true;
-                        }
-
-                        // Add new images
-                        if (request.Images != null && request.Images.Count > 0)
-                        {
-                            foreach (var imageFile in request.Images)
-                            {
-                                var imageUrl = await _fileService.UploadImageAsync(imageFile, "products");
-
-                                var productImage = new ProductImage
-                                {
-                                    ImageUrl = imageUrl,
-                                    ProductId = product.Id,
-                                    IsMain = false
-                                };
-
-                                _context.ProductImages.Add(productImage);
-                            }
-                        }
-
-                        // Update translations using navigation property clearing
-                        product.Translations.Clear();
-                        if (request.Translations != null && request.Translations.Count > 0)
-                        {
-                            foreach (var translation in request.Translations)
-                            {
-                                // Normalize language code to 2-char format (e.g., "en-US" → "en")
-                                var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode)
-                                    ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
-                                    : "en";
-
-                                product.Translations.Add(new ProductTranslation
+                                existingNote.Translations.Add(new FlavourNoteTranslation
                                 {
                                     LanguageCode = normalizedLanguageCode,
-                                    Name = translation.Name,
-                                    Description = translation.Description
+                                    Name = translation.Name
                                 });
                             }
                         }
-                        else
-                        {
-                            // Fallback: Determine language from Accept-Language header
-                            // This ensures Name/Description are saved with correct language code
-                            var languageCode = ExtractLanguageFromRequest();
-
-                            product.Translations.Add(new ProductTranslation
-                            {
-                                LanguageCode = languageCode,
-                                Name = request.Name,
-                                Description = request.Description
-                            });
-                        }
-
-                        // Update slug only if name actually changed
-                        if (oldName != request.Name)
-                        {
-                            var baseSlug = SlugGenerator.GenerateSlug(request.Name);
-                            product.Slug = await GenerateUniqueSlugAsync(baseSlug, id);
-                        }
-
-                        product.StockInKg = request.StockInKg;
-                        product.CategoryId = request.CategoryId;
-                        product.OriginId = request.OriginId;
-                        product.UpdatedAt = DateTime.UtcNow;
-
-                        // Update M2M relationships for RoastLevels using navigation property clearing
-                        product.RoastLevels.Clear();
-                        if (request.RoastLevelIds != null && request.RoastLevelIds.Count > 0)
-                        {
-                            var roastLevels = await _context.RoastLevels
-                                .Where(r => request.RoastLevelIds.Contains(r.Id))
-                                .ToListAsync();
-                            foreach (var roastLevel in roastLevels)
-                            {
-                                product.RoastLevels.Add(roastLevel);
-                            }
-                        }
-
-                        // Update M2M relationships for GrindTypes using navigation property clearing
-                        product.GrindTypes.Clear();
-                        if (request.GrindTypeIds != null && request.GrindTypeIds.Count > 0)
-                        {
-                            var grindTypes = await _context.GrindTypes
-                                .Where(g => request.GrindTypeIds.Contains(g.Id))
-                                .ToListAsync();
-                            foreach (var grindType in grindTypes)
-                            {
-                                product.GrindTypes.Add(grindType);
-                            }
-                        }
-
-                        // Update FlavourNotes using navigation property clearing
-                        product.FlavourNotes.Clear();
-                        if (request.FlavourNotes != null && request.FlavourNotes.Count > 0)
-                        {
-                            foreach (var flavourNote in request.FlavourNotes)
-                            {
-                                var note = new FlavourNote
-                                {
-                                    Name = flavourNote.Name,
-                                    DisplayOrder = flavourNote.DisplayOrder
-                                };
-
-                                // Add default English translation
-                                note.Translations.Add(new FlavourNoteTranslation
-                                {
-                                    LanguageCode = "en",
-                                    Name = flavourNote.Name
-                                });
-
-                                // Add additional translations if provided
-                                if (flavourNote.Translations != null && flavourNote.Translations.Count > 0)
-                                {
-                                    foreach (var translation in flavourNote.Translations)
-                                    {
-                                        // Normalize language code to 2-char format (e.g., "en-US" → "en")
-                                        var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode) 
-                                            ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
-                                            : "en";
-
-                                        note.Translations.Add(new FlavourNoteTranslation
-                                        {
-                                            LanguageCode = normalizedLanguageCode,
-                                            Name = translation.Name
-                                        });
-                                    }
-                                }
-
-                                product.FlavourNotes.Add(note);
-                            }
-                        }
-
-                        // Update prices using navigation property clearing
-                        product.Prices.Clear();
-                        if (request.Prices != null && request.Prices.Count > 0)
-                        {
-                            // Check for duplicate ProductWeightId + CurrencyCode combinations
-                            var duplicatePrices = request.Prices
-                                .GroupBy(p => new { p.ProductWeightId, CurrencyCode = p.CurrencyCode ?? "USD" })
-                                .Where(g => g.Count() > 1)
-                                .Select(g => g.Key)
-                                .ToList();
-
-                            if (duplicatePrices.Any())
-                            {
-                                var firstDup = duplicatePrices.First();
-                                throw new BadRequestException(
-                                    $"Duplicate price found: Weight ID {firstDup.ProductWeightId} already has a price for currency {firstDup.CurrencyCode}. " +
-                                    "Each weight-currency combination can only be specified once per product."
-                                );
-                            }
-
-                            // Validate all ProductWeightIds exist
-                            var requestedWeightIds = request.Prices.Select(p => p.ProductWeightId).Distinct().ToList();
-                            var existingWeightIds = await _context.ProductWeights
-                                .Where(pw => requestedWeightIds.Contains(pw.Id))
-                                .Select(pw => pw.Id)
-                                .ToListAsync();
-
-                            var invalidWeightIds = requestedWeightIds.Except(existingWeightIds).ToList();
-                            if (invalidWeightIds.Any())
-                            {
-                                throw new BadRequestException(
-                                    $"Invalid ProductWeightIds: {string.Join(", ", invalidWeightIds)}. " +
-                                    "Please ensure all product weight IDs exist in the system."
-                                );
-                            }
-
-                            var newPrices = request.Prices.Select(p => new ProductPrice
-                            {
-                                ProductId = product.Id,
-                                ProductWeightId = p.ProductWeightId,
-                                Price = p.Price,
-                                CurrencyCode = ParseCurrencyCode(p.CurrencyCode ?? "USD")
-                            }).ToList();
-
-                            foreach (var price in newPrices)
-                            {
-                                product.Prices.Add(price);
-                            }
-                        }
-
-                        // Wrap SaveChangesAsync in try-catch for concurrency handling
-                        try
-                        {
-                            await _context.SaveChangesAsync();
-                        }
-                        catch (DbUpdateConcurrencyException ex)
-                        {
-                            _logger.LogError(ex, "Concurrency conflict occurred while updating product {ProductId}", id);
-                            throw new BadRequestException(
-                                "The product was modified by another user. Please refresh and try again."
-                            );
-                        }
-
-                        // Invalidate all caches for this product using tag-based invalidation
-                        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{id}");
-                        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");
                     }
+
+                    _logger.LogInformation(
+                        "Updated flavour note {NoteName} for product {ProductId}",
+                        existingNote.Name, productId);
+                }
+                else
+                {
+                    // Add new note
+                    var newNoteId = Guid.NewGuid();
+                    var newNote = new FlavourNote
+                    {
+                        Id = newNoteId,
+                        ProductId = productId,
+                        Name = requestNote.Name,
+                        DisplayOrder = requestNote.DisplayOrder
+                    };
+
+                    // Add default English translation
+                    newNote.Translations.Add(new FlavourNoteTranslation
+                    {
+                        Id = Guid.NewGuid(),
+                        FlavourNoteId = newNoteId,
+                        LanguageCode = "en",
+                        Name = requestNote.Name
+                    });
+
+                    // Add additional translations
+                    if (requestNote.Translations != null && requestNote.Translations.Count > 0)
+                    {
+                        foreach (var translation in requestNote.Translations)
+                        {
+                            var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode)
+                                ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
+                                : "en";
+
+                            // Skip if it's "en" (already added above)
+                            if (normalizedLanguageCode != "en")
+                            {
+                                newNote.Translations.Add(new FlavourNoteTranslation
+                                {
+                                    Id = Guid.NewGuid(),
+                                    FlavourNoteId = newNoteId,
+                                    LanguageCode = normalizedLanguageCode,
+                                    Name = translation.Name
+                                });
+                            }
+                        }
+                    }
+
+                    _context.FlavourNotes.Add(newNote);
+                    _logger.LogInformation(
+                        "Added new flavour note {NoteName} to product {ProductId}",
+                        newNote.Name, productId);
+                }
+            }
+
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating flavour notes for product {ProductId}", productId);
+            throw;
+        }
+    }
+
+    private async Task UpdatePricesAsync(Guid productId, List<ProductPriceCreateDto> requestPrices)
+    {
+        // This method operates ONLY on ProductPrice table
+        // No Product entity loading, no concurrency conflicts with FlavourNotes
+
+        try
+        {
+            // Check for duplicate ProductWeightId + CurrencyCode combinations
+            var duplicatePrices = requestPrices
+                .GroupBy(p => new { p.ProductWeightId, CurrencyCode = p.CurrencyCode ?? "USD" })
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToList();
+
+            if (duplicatePrices.Any())
+            {
+                var firstDup = duplicatePrices.First();
+                throw new BadRequestException(
+                    $"Duplicate price found: Weight ID {firstDup.ProductWeightId} already has a price for currency {firstDup.CurrencyCode}."
+                );
+            }
+
+            // Validate ProductWeightIds
+            var requestedWeightIds = requestPrices.Select(p => p.ProductWeightId).Distinct().ToList();
+            var existingWeightIds = await _context.ProductWeights
+                .Where(pw => requestedWeightIds.Contains(pw.Id))
+                .Select(pw => pw.Id)
+                .ToListAsync();
+
+            var invalidWeightIds = requestedWeightIds.Except(existingWeightIds).ToList();
+            if (invalidWeightIds.Any())
+            {
+                throw new BadRequestException(
+                    $"Invalid ProductWeightIds: {string.Join(", ", invalidWeightIds)}."
+                );
+            }
+
+            // Get existing prices
+            var existingPrices = await _context.ProductPrices
+                .Where(p => p.ProductId == productId)
+                .ToListAsync();
+
+            // Get prices that have orders (cannot modify weight/currency)
+            var pricesWithOrders = await _context.OrderItems
+                .Where(oi => existingPrices.Select(p => p.Id).Contains(oi.ProductPriceId))
+                .Select(oi => oi.ProductPriceId)
+                .Distinct()
+                .ToListAsync();
+
+            var priceIdsFromRequest = requestPrices
+                .Where(p => p.Id.HasValue)
+                .Select(p => p.Id.Value)
+                .ToList();
+
+            // Update or add prices
+            foreach (var priceRequest in requestPrices)
+            {
+                ProductPrice existingPrice = null;
+
+                if (priceRequest.Id.HasValue)
+                {
+                    existingPrice = existingPrices.FirstOrDefault(p => p.Id == priceRequest.Id.Value);
+                }
+
+                if (existingPrice == null)
+                {
+                    var parsedCurrency = ParseCurrencyCode(priceRequest.CurrencyCode ?? "USD");
+                    existingPrice = existingPrices.FirstOrDefault(p =>
+                        p.ProductWeightId == priceRequest.ProductWeightId &&
+                        p.CurrencyCode == parsedCurrency);
+                }
+
+                if (existingPrice != null)
+                {
+                    if (pricesWithOrders.Contains(existingPrice.Id))
+                    {
+                        // Only update price value
+                        if (existingPrice.Price != priceRequest.Price)
+                        {
+                            existingPrice.Price = priceRequest.Price;
+                            _logger.LogInformation(
+                                "Updated price value for price {PriceId} (referenced by orders)",
+                                existingPrice.Id);
+                        }
+                    }
+                    else
+                    {
+                        // Full update allowed
+                        existingPrice.Price = priceRequest.Price;
+                        existingPrice.ProductWeightId = priceRequest.ProductWeightId;
+                        existingPrice.CurrencyCode = ParseCurrencyCode(priceRequest.CurrencyCode ?? "USD");
+                        _logger.LogInformation(
+                            "Updated price {PriceId}",
+                            existingPrice.Id);
+                    }
+                }
+                else
+                {
+                    // Add new price
+                    var newPrice = new ProductPrice
+                    {
+                        ProductId = productId,
+                        ProductWeightId = priceRequest.ProductWeightId,
+                        Price = priceRequest.Price,
+                        CurrencyCode = ParseCurrencyCode(priceRequest.CurrencyCode ?? "USD")
+                    };
+                    _context.ProductPrices.Add(newPrice);
+                    _logger.LogInformation(
+                        "Added new price for product {ProductId}",
+                        productId);
+                }
+            }
+
+            // Delete prices not in request
+            // Frontend is responsible for sending ALL existing prices in the request.
+            // If a price is NOT in request.Prices, it means user wants to delete it.
+            // Prices with orders (referenced by OrderItems) are protected from deletion.
+            var requestedWeightCurrencyCombinations = requestPrices
+                .Select(p => new
+                {
+                    p.ProductWeightId,
+                    Currency = ParseCurrencyCode(p.CurrencyCode ?? "USD")
+                })
+                .Distinct()
+                .ToList();
+
+            var pricesToDelete = existingPrices
+                .Where(ep =>
+                    !requestedWeightCurrencyCombinations.Any(rc =>
+                        rc.ProductWeightId == ep.ProductWeightId &&
+                        rc.Currency == ep.CurrencyCode))
+                .Where(ep => !pricesWithOrders.Contains(ep.Id))
+                .ToList();
+
+            if (pricesToDelete.Any())
+            {
+                _context.ProductPrices.RemoveRange(pricesToDelete);
+                _logger.LogInformation(
+                    "Deleted {Count} prices from product {ProductId}",
+                    pricesToDelete.Count, productId);
+            }
+
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating prices for product {ProductId}", productId);
+            throw;
+        }
+    }
+
+    private async Task UpdateProductMetadataAsync(Guid id, UpdateProductRequest request)
+    {
+        // This method updates ONLY the Product entity itself
+        // No related collections are loaded or modified
+
+        try
+        {
+            var product = await _context.Products
+                .Include(p => p.Translations)
+                .Include(p => p.RoastLevels)
+                .Include(p => p.GrindTypes)
+                .Include(p => p.Images)
+                .FirstOrDefaultAsync(p => p.Id == id)
+                ?? throw new NotFoundException($"Product with ID {id} not found.");
+
+            // Capture old name
+            var oldNameTranslation = product.Translations.FirstOrDefault(t => t.LanguageCode == "en")
+                ?? product.Translations.FirstOrDefault();
+            var oldName = oldNameTranslation?.Name ?? string.Empty;
+
+            // Handle images
+            if (request.DeletedImageIds != null && request.DeletedImageIds.Count > 0)
+            {
+                var imagesToDelete = product.Images
+                    .Where(img => request.DeletedImageIds.Contains(img.Id))
+                    .ToList();
+
+                foreach (var image in imagesToDelete)
+                {
+                    _fileService.DeleteFile(image.ImageUrl);
+                    product.Images.Remove(image);
+                }
+            }
+
+            if (request.SetMainImageId.HasValue)
+            {
+                var targetImage = product.Images.FirstOrDefault(img => img.Id == request.SetMainImageId.Value)
+                    ?? throw new NotFoundException($"Image not found");
+                foreach (var img in product.Images)
+                {
+                    img.IsMain = false;
+                }
+                targetImage.IsMain = true;
+            }
+
+            if (request.Images != null && request.Images.Count > 0)
+            {
+                foreach (var imageFile in request.Images)
+                {
+                    var imageUrl = await _fileService.UploadImageAsync(imageFile, "products");
+                    var productImage = new ProductImage
+                    {
+                        ImageUrl = imageUrl,
+                        ProductId = product.Id,
+                        IsMain = false
+                    };
+                    _context.ProductImages.Add(productImage);
+                }
+            }
+
+            // Update translations
+            if (request.Translations != null && request.Translations.Count > 0)
+            {
+                var incomingLanguageCodes = request.Translations
+                    .Select(t => !string.IsNullOrWhiteSpace(t.LanguageCode)
+                        ? t.LanguageCode.Substring(0, Math.Min(2, t.LanguageCode.Length)).ToLower()
+                        : "en")
+                    .ToHashSet();
+
+                var translationsToRemove = product.Translations
+                    .Where(t => !incomingLanguageCodes.Contains(t.LanguageCode))
+                    .ToList();
+
+                foreach (var translation in translationsToRemove)
+                {
+                    product.Translations.Remove(translation);
+                }
+
+                foreach (var translation in request.Translations)
+                {
+                    var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode)
+                        ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
+                        : "en";
+
+                    var existingTranslation = product.Translations
+                        .FirstOrDefault(t => t.LanguageCode == normalizedLanguageCode);
+
+                    if (existingTranslation != null)
+                    {
+                        existingTranslation.Name = translation.Name;
+                        existingTranslation.Description = translation.Description;
+                    }
+                    else
+                    {
+                        product.Translations.Add(new ProductTranslation
+                        {
+                            LanguageCode = normalizedLanguageCode,
+                            Name = translation.Name,
+                            Description = translation.Description
+                        });
+                    }
+                }
+            }
+            else
+            {
+                var languageCode = ExtractLanguageFromRequest();
+                var defaultTranslation = product.Translations.FirstOrDefault(t => t.LanguageCode == languageCode);
+
+                if (defaultTranslation != null)
+                {
+                    defaultTranslation.Name = request.Name;
+                    defaultTranslation.Description = request.Description;
+                }
+                else
+                {
+                    product.Translations.Clear();
+                    product.Translations.Add(new ProductTranslation
+                    {
+                        LanguageCode = languageCode,
+                        Name = request.Name,
+                        Description = request.Description
+                    });
+                }
+            }
+
+            // Update slug
+            if (oldName != request.Name)
+            {
+                var baseSlug = SlugGenerator.GenerateSlug(request.Name);
+                product.Slug = await GenerateUniqueSlugAsync(baseSlug, id);
+            }
+
+            // Update basic properties
+            product.StockInKg = request.StockInKg;
+            product.CategoryId = request.CategoryId;
+            product.OriginId = request.OriginId;
+            product.UpdatedAt = DateTime.UtcNow;
+
+            // Update RoastLevels
+            if (request.RoastLevelIds != null && request.RoastLevelIds.Count > 0)
+            {
+                var roastLevelsToRemove = product.RoastLevels
+                    .Where(r => !request.RoastLevelIds.Contains(r.Id))
+                    .ToList();
+
+                foreach (var roastLevel in roastLevelsToRemove)
+                {
+                    product.RoastLevels.Remove(roastLevel);
+                }
+
+                var newRoastLevelIds = request.RoastLevelIds
+                    .Where(rid => !product.RoastLevels.Any(r => r.Id == rid))
+                    .ToList();
+
+                if (newRoastLevelIds.Count > 0)
+                {
+                    var roastLevels = await _context.RoastLevels
+                        .Where(r => newRoastLevelIds.Contains(r.Id))
+                        .ToListAsync();
+                    foreach (var roastLevel in roastLevels)
+                    {
+                        product.RoastLevels.Add(roastLevel);
+                    }
+                }
+            }
+            else
+            {
+                var roastLevelsToRemove = product.RoastLevels.ToList();
+                foreach (var roastLevel in roastLevelsToRemove)
+                {
+                    product.RoastLevels.Remove(roastLevel);
+                }
+            }
+
+            // Update GrindTypes
+            if (request.GrindTypeIds != null && request.GrindTypeIds.Count > 0)
+            {
+                var grindTypesToRemove = product.GrindTypes
+                    .Where(g => !request.GrindTypeIds.Contains(g.Id))
+                    .ToList();
+
+                foreach (var grindType in grindTypesToRemove)
+                {
+                    product.GrindTypes.Remove(grindType);
+                }
+
+                var newGrindTypeIds = request.GrindTypeIds
+                    .Where(gid => !product.GrindTypes.Any(g => g.Id == gid))
+                    .ToList();
+
+                if (newGrindTypeIds.Count > 0)
+                {
+                    var grindTypes = await _context.GrindTypes
+                        .Where(g => newGrindTypeIds.Contains(g.Id))
+                        .ToListAsync();
+                    foreach (var grindType in grindTypes)
+                    {
+                        product.GrindTypes.Add(grindType);
+                    }
+                }
+            }
+            else
+            {
+                var grindTypesToRemove = product.GrindTypes.ToList();
+                foreach (var grindType in grindTypesToRemove)
+                {
+                    product.GrindTypes.Remove(grindType);
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Product {ProductId} metadata successfully updated.", id);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogError(ex, "Concurrency error updating product {ProductId} metadata", id);
+            throw new InvalidOperationException(
+                $"Product update failed due to concurrent modification. Please refresh and try again.",
+                ex
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating product {ProductId} metadata", id);
+            throw;
+        }
+    }
 
     public async Task DeleteAsync(Guid id)
     {
         var product = await _context.Products
             .Include(p => p.Images)
-            .FirstOrDefaultAsync(p => p.Id == id) ?? throw new NotFoundException($"Product with ID {id} not found.");
-        
-        foreach (var image in product.Images)
+            .Include(p => p.Prices)
+            .FirstOrDefaultAsync(p => p.Id == id)
+            ?? throw new NotFoundException($"Product with ID {id} not found.");
+
+        // Check if product has any existing orders
+        bool hasOrders = await _context.OrderItems
+            .AnyAsync(oi => product.Prices.Select(p => p.Id).Contains(oi.ProductPriceId));
+
+        if (hasOrders)
         {
-            _fileService.DeleteFile(image.ImageUrl);
+            // Soft Delete: Product is referenced by orders, cannot hard delete
+            // Preserve product and images for order history integrity
+            product.IsActive = false;
+            _logger.LogInformation(
+                "Product {ProductId} soft-deleted because it has associated orders. Product remains in database with IsActive=false for order history",
+                id);
+        }
+        else
+        {
+            // Hard Delete: No orders reference this product, safe to completely remove
+            foreach (var image in product.Images)
+            {
+                _fileService.DeleteFile(image.ImageUrl);
+            }
+
+            _context.Products.Remove(product);
+            _logger.LogInformation(
+                "Product {ProductId} hard-deleted: removed from database and deleted all associated images",
+                id);
         }
 
-        _context.Products.Remove(product);
         await _context.SaveChangesAsync();
 
         // Invalidate all caches for this product
         await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{id}");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");
+    }
+
+    public async Task RestoreAsync(Guid id)
+    {
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == id)
+            ?? throw new NotFoundException($"Product with ID {id} not found.");
+
+        // Restore the product by setting IsActive back to true
+        product.IsActive = true;
+        _logger.LogInformation(
+            "Product {ProductId} restored. IsActive set to true",
+            id);
+
+        await _context.SaveChangesAsync();
+
+        // Invalidate all caches for this product
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{id}");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");
     }
 
     private ProductResponse MapToResponse(Product product, Currency currentCurrency, string languageCode)
@@ -894,7 +1242,7 @@ public class ProductService(
         var activePrice = product.Prices
             .FirstOrDefault(p => p.CurrencyCode == currentCurrency);
 
-        var activePriceDto = activePrice != null 
+        var activePriceDto = activePrice != null
             ? new ProductPriceDto(
                 ProductPriceId: activePrice.Id,
                 WeightLabel: activePrice.Weight?.Label ?? "Unknown",
@@ -928,8 +1276,8 @@ public class ProductService(
             StockInKg: product.StockInKg,
             IsActive: product.IsActive,
             CategoryId: product.CategoryId,
-            CategoryName: product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.Name 
-                          ?? product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
+            CategoryName: product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.Name
+                          ?? product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name
                           ?? "Unknown",
             OriginId: product.OriginId,
             OriginName: product.Origin?.Name,
@@ -942,7 +1290,7 @@ public class ProductService(
                 Name: t.Name,
                 Description: t.Description
             ))],
-            FlavourNotes: [.. product.FlavourNotes.OrderBy(fn => fn.DisplayOrder).Select(fn => 
+            FlavourNotes: [.. product.FlavourNotes.OrderBy(fn => fn.DisplayOrder).Select(fn =>
             {
                 // Get translation for current language, fallback to English
                 var translation = fn.Translations.FirstOrDefault(t => t.LanguageCode == languageCode)
@@ -972,71 +1320,71 @@ public class ProductService(
     }
 
     private async Task<string> GenerateUniqueSlugAsync(string baseSlug, Guid? excludeProductId = null)
+    {
+        var slug = baseSlug;
+        var counter = 1;
+
+        while (await _context.Products.AnyAsync(p => p.Slug == slug && p.Id != excludeProductId))
         {
-            var slug = baseSlug;
-            var counter = 1;
-
-            while (await _context.Products.AnyAsync(p => p.Slug == slug && p.Id != excludeProductId))
-            {
-                slug = $"{baseSlug}-{counter}";
-                counter++;
-            }
-
-            return slug;
+            slug = $"{baseSlug}-{counter}";
+            counter++;
         }
 
-        /// <summary>
-        /// Extracts the language code from the Accept-Language header.
-        /// Defaults to "en" if not specified or unsupported.
-        /// Supports: "ar" (Arabic) and "en" (English).
-        /// </summary>
-        private string ExtractLanguageFromRequest()
+        return slug;
+    }
+
+    /// <summary>
+    /// Extracts the language code from the Accept-Language header.
+    /// Defaults to "en" if not specified or unsupported.
+    /// Supports: "ar" (Arabic) and "en" (English).
+    /// </summary>
+    private string ExtractLanguageFromRequest()
+    {
+        try
         {
-            try
+            var httpContext = _httpContextAccessor.HttpContext;
+            if (httpContext == null)
             {
-                var httpContext = _httpContextAccessor.HttpContext;
-                if (httpContext == null)
-                {
-                    return "en"; // Default
-                }
+                return "en"; // Default
+            }
 
-                // Read Accept-Language header
-                var acceptLanguage = httpContext.Request.Headers["Accept-Language"].ToString();
+            // Read Accept-Language header
+            var acceptLanguage = httpContext.Request.Headers["Accept-Language"].ToString();
 
-                if (string.IsNullOrWhiteSpace(acceptLanguage))
-                {
-                    return "en"; // Default
-                }
+            if (string.IsNullOrWhiteSpace(acceptLanguage))
+            {
+                return "en"; // Default
+            }
 
-                            // Extract primary language (e.g., "ar-AE" or "ar" -> "ar")
-                            var langPart = acceptLanguage.Split(',')[0].Trim();
-                            var lang = langPart.Length >= 2 ? langPart.Substring(0, 2).ToLower() : "en";
+            // Extract primary language (e.g., "ar-AE" or "ar" -> "ar")
+            var langPart = acceptLanguage.Split(',')[0].Trim();
+            var lang = langPart.Length >= 2 ? langPart.Substring(0, 2).ToLower() : "en";
 
-                            // Support only "ar" and "en"
-                            return lang switch
-                            {
-                                "ar" => "ar",
-                                _ => "en"
-                            };
-                        }
-                        catch
-                        {
-                            return "en"; // Default on any error
-                        }
-                    }
+            // Support only "ar" and "en"
+            return lang switch
+            {
+                "ar" => "ar",
+                _ => "en"
+            };
+        }
+        catch
+        {
+            return "en"; // Default on any error
+        }
+    }
 
-                    /// <summary>
-                    /// Parses currency code string to Currency enum.
-                    /// Defaults to USD if invalid code is provided.
-                    /// </summary>
-                    private Currency ParseCurrencyCode(string currencyCode)
-                    {
-                        if (string.IsNullOrWhiteSpace(currencyCode))
-                            return Currency.USD;
+    /// <summary>
+    /// Parses currency code string to Currency enum.
+    /// Defaults to USD if invalid code is provided.
+    /// </summary>
+    private Currency ParseCurrencyCode(string currencyCode)
+    {
+        if (string.IsNullOrWhiteSpace(currencyCode))
+            return Currency.USD;
 
-                        return Enum.TryParse<Currency>(currencyCode.Trim().ToUpper(), out var currency)
-                            ? currency
-                            : Currency.USD;
-                    }
-                }
+        return Enum.TryParse<Currency>(currencyCode.Trim().ToUpper(), out var currency)
+            ? currency
+            : Currency.USD;
+    }
+}
 

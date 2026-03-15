@@ -27,8 +27,6 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
             RuleFor(x => x.ShippingAddress.Street)
                 .NotEmpty()
                 .WithMessage("Street address is required.")
-                .MinimumLength(5)
-                .WithMessage("Street address must be at least 5 characters long.")
                 .MaximumLength(200)
                 .WithMessage("Street address must not exceed 200 characters.");
 
@@ -49,12 +47,11 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
                 .WithMessage("State must not exceed 50 characters.");
 
             RuleFor(x => x.ShippingAddress.PostalCode)
-                .NotEmpty()
-                .WithMessage("Postal code is required.")
                 .MinimumLength(3)
                 .WithMessage("Postal code must be at least 3 characters long.")
                 .MaximumLength(20)
-                .WithMessage("Postal code must not exceed 20 characters.");
+                .WithMessage("Postal code must not exceed 20 characters.")
+                .When(x => !string.IsNullOrEmpty(x.ShippingAddress.PostalCode));
 
             RuleFor(x => x.ShippingAddress.Country)
                 .NotEmpty()
@@ -62,7 +59,15 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
                 .MinimumLength(2)
                 .WithMessage("Country must be at least 2 characters long.")
                 .MaximumLength(50)
-                .WithMessage("Country must not exceed 50 characters.");
+                .WithMessage("Country must not exceed 50 characters.")
+                .Must(country => 
+                {
+                    // Following Copilot instructions: normalize country code by taking first 2 characters
+                    var normalizedCountry = country?.Length > 2 ? country.Substring(0, 2) : country;
+                    var gccCountries = new[] { "AE", "SA", "QA", "KW", "BH", "OM" };
+                    return gccCountries.Contains(normalizedCountry?.ToUpper());
+                })
+                .WithMessage("Delivery is currently only available to GCC countries (AE, SA, QA, KW, BH, OM).");
 
             // Guest contact information validation (optional for logged-in users, required for guests)
             RuleFor(x => x.ShippingAddress.Email)

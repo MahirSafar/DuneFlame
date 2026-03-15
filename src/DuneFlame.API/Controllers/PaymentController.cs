@@ -24,12 +24,12 @@ public class PaymentController(
     private readonly AppDbContext _context = context;
     private readonly IValidator<CreatePaymentIntentRequest> _createPaymentIntentValidator = createPaymentIntentValidator;
 
-    private Guid GetUserId()
+    private Guid? GetUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
         {
-            throw new UnauthorizedAccessException("User ID not found in claims");
+            return null; // Guest user - no ID
         }
         return userId;
     }
@@ -37,14 +37,16 @@ public class PaymentController(
     /// <summary>
     /// Create or update payment intent for a basket
     /// POST /api/v1/payments/{basketId}
+    /// Supports both authenticated and guest users for Express Checkout flow
     /// </summary>
     [HttpPost("{basketId}")]
+    [AllowAnonymous]
     [EnableRateLimiting("CheckoutPolicy")]
     public async Task<IActionResult> CreatePaymentIntent(string basketId)
     {
         try
         {
-            var userId = GetUserId();
+            var userId = GetUserId(); // Returns null for guest users
 
             // Fetch basket from Redis
             var basket = await _basketService.GetBasketAsync(basketId);
@@ -94,18 +96,21 @@ public class PaymentController(
             bool paymentNotRequired = string.IsNullOrEmpty(paymentIntent.ClientSecret) && 
                 (paymentIntent.PaymentIntentId.StartsWith("internal_"));
 
-            // Sync PaymentIntentId with the latest pending order for this user
-            // Find the most recently created pending order and update it with the PaymentIntentId
-            var order = await _context.Orders
-                .Where(o => o.UserId == userId && o.Status == DuneFlame.Domain.Enums.OrderStatus.Pending)
-                .OrderByDescending(o => o.CreatedAt)
-                .FirstOrDefaultAsync();
-
-            if (order != null && string.IsNullOrEmpty(order.PaymentIntentId))
+            // Sync PaymentIntentId with the latest pending order for this user (authenticated users only)
+            // Guest users don't have pre-created orders at this point (order is created after payment confirmation)
+            if (userId.HasValue)
             {
-                order.PaymentIntentId = paymentIntent.PaymentIntentId;
-                _context.Orders.Update(order);
-                await _context.SaveChangesAsync();
+                var order = await _context.Orders
+                    .Where(o => o.UserId == userId.Value && o.Status == DuneFlame.Domain.Enums.OrderStatus.Pending)
+                    .OrderByDescending(o => o.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                if (order != null && string.IsNullOrEmpty(order.PaymentIntentId))
+                {
+                    order.PaymentIntentId = paymentIntent.PaymentIntentId;
+                    _context.Orders.Update(order);
+                    await _context.SaveChangesAsync();
+                }
             }
 
             var response = new DuneFlame.Application.DTOs.Payment.PaymentIntentDto(
@@ -144,6 +149,11 @@ public class PaymentController(
         try
         {
             var userId = GetUserId();
+
+            if (!userId.HasValue)
+            {
+                return Unauthorized(new { message = "User must be authenticated to use this endpoint" });
+            }
 
             // Validate that the order belongs to the current user
             var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId);
@@ -229,6 +239,11 @@ public class PaymentController(
             }
 
             var userId = GetUserId();
+
+            if (!userId.HasValue)
+            {
+                return Unauthorized(new { message = "User must be authenticated to use this endpoint" });
+            }
 
             // Create a temporary order for tracking
             // In a real scenario, you might want to create this in a separate transaction

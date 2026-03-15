@@ -19,28 +19,87 @@ public class SmtpEmailService(
     private const int MaxRetries = 3;
     private const int RetryDelayMs = 1000;
 
-    // --- Private Helper for HTML Branding ---
-    private string GetHtmlTemplate(string title, string message, string buttonText, string buttonUrl)
+    /// <summary>
+    /// Master email template wrapper - wraps any HTML content in a beautiful, responsive design.
+    /// Uses Dune & Flame branding with dark brown (#2b1b13) and amber/gold (#f59e0b) accents.
+    /// </summary>
+    private string ApplyEmailTemplate(string title, string htmlContent)
     {
         return $@"
-        <div style='font-family: ""Segoe UI"", Tahoma, Geneva, Verdana, sans-serif; background-color: #f9f9f9; padding: 40px 0;'>
-            <div style='max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05);'>
-                <div style='background-color: #e67e22; padding: 30px; text-align: center;'>
-                    <h1 style='color: #ffffff; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 3px;'>Dune Flame</h1>
-                </div>
-                <div style='padding: 40px; text-align: center; color: #333333;'>
-                    <h2 style='color: #2c3e50; margin-bottom: 20px;'>{title}</h2>
-                    <p style='font-size: 16px; line-height: 1.8; color: #555555;'>{message}</p>
-                    <div style='margin-top: 35px;'>
-                        <a href='{buttonUrl}' style='background-color: #e67e22; color: #ffffff; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;'>{buttonText}</a>
-                    </div>
-                </div>
-                <div style='background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888888;'>
-                    <p>© {DateTime.Now.Year} DuneFlame. All rights reserved.</p>
-                    <p>If you didn't request this email, please ignore it.</p>
-                </div>
-            </div>
-        </div>";
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>{System.Net.WebUtility.HtmlEncode(title)}</title>
+</head>
+<body style=""margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;"">
+    <table width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""background-color: #f5f5f5; padding: 40px 20px;"">
+        <tr>
+            <td align=""center"">
+                <!-- Main Container -->
+                <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; max-width: 100%;"">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style=""background: linear-gradient(135deg, #2b1b13 0%, #3d2a1f 100%); padding: 35px 40px; text-align: center;"">
+                            <h1 style=""color: #f59e0b; margin: 0; font-size: 32px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);"">
+                                Dune & Flame
+                            </h1>
+                            <p style=""color: #d4a574; margin: 8px 0 0 0; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;"">Premium Coffee Experience</p>
+                        </td>
+                    </tr>
+
+                    <!-- Title Bar -->
+                    <tr>
+                        <td style=""background-color: #f59e0b; padding: 20px 40px; text-align: center;"">
+                            <h2 style=""color: #ffffff; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 1px;"">{System.Net.WebUtility.HtmlEncode(title)}</h2>
+                        </td>
+                    </tr>
+
+                    <!-- Content Area -->
+                    <tr>
+                        <td style=""padding: 45px 40px; color: #333333; font-size: 16px; line-height: 1.7;"">
+                            {htmlContent}
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style=""background-color: #fafafa; padding: 30px 40px; text-align: center; border-top: 1px solid #e5e5e5;"">
+                            <p style=""margin: 0 0 10px 0; color: #666666; font-size: 13px; line-height: 1.6;"">
+                                © {DateTime.Now.Year} Dune & Flame. All rights reserved.
+                            </p>
+                            <p style=""margin: 0; color: #999999; font-size: 12px;"">
+                                Premium coffee roasted with passion and expertise.
+                            </p>
+                            <div style=""margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e5e5;"">
+                                <p style=""margin: 0; color: #aaaaaa; font-size: 11px;"">
+                                    If you didn't request this email, you can safely ignore it.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>";
+    }
+
+    /// <summary>
+    /// Helper method to create a styled button for use within email templates.
+    /// </summary>
+    private string CreateButton(string buttonText, string buttonUrl)
+    {
+        return $@"
+<div style=""text-align: center; margin: 30px 0;"">
+    <a href=""{buttonUrl}"" style=""display: inline-block; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #ffffff; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); transition: all 0.3s ease;"">
+        {System.Net.WebUtility.HtmlEncode(buttonText)}
+    </a>
+</div>";
     }
 
     /// <summary>
@@ -135,16 +194,18 @@ public class SmtpEmailService(
     {
         try
         {
-            // Link points to API with verification endpoint, then redirects to Frontend
             var verificationLink = $"{_clientUrls.ApiBaseUrl}/api/v1/auth/verify-email?userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(token)}";
 
-            var body = GetHtmlTemplate(
-                "Verify Your Account",
-                "Welcome to DuneFlame! We're excited to have you. Please click the button below to confirm your email address and activate your account.",
-                "Confirm Email",
-                verificationLink);
+            var content = $@"
+<p style=""margin: 0 0 20px 0; text-align: center;"">Welcome to <strong>Dune & Flame</strong>! We're excited to have you join our community of coffee lovers.</p>
+<p style=""margin: 0 0 30px 0; text-align: center;"">Please verify your email address to activate your account and start exploring our premium coffee collection.</p>
+{CreateButton("Verify Email Address", verificationLink)}
+<p style=""margin: 30px 0 0 0; text-align: center; color: #666666; font-size: 14px;"">
+    This verification link will expire in 24 hours for security reasons.
+</p>";
 
-            await SendGenericEmailAsync(to, "Confirm Your Email - DuneFlame", body);
+            var body = ApplyEmailTemplate("Email Verification", content);
+            await SendGenericEmailAsync(to, "Verify Your Email - Dune & Flame", body);
         }
         catch (Exception ex)
         {
@@ -157,16 +218,19 @@ public class SmtpEmailService(
     {
         try
         {
-            // Password reset links go directly to the Frontend
             var frontendResetUrl = $"{_clientUrls.BaseUrl}/auth/reset-password?userId={Uri.EscapeDataString(userId)}&email={Uri.EscapeDataString(to)}&token={Uri.EscapeDataString(token)}";
 
-            var body = GetHtmlTemplate(
-                "Reset Your Password",
-                "Forgot your password? No worries. Click the button below to set a new password for your account.",
-                "Reset Password",
-                frontendResetUrl);
+            var content = $@"
+<p style=""margin: 0 0 20px 0; text-align: center;"">We received a request to reset your password. No worries - it happens to everyone!</p>
+<p style=""margin: 0 0 30px 0; text-align: center;"">Click the button below to create a new password for your account.</p>
+{CreateButton("Reset Password", frontendResetUrl)}
+<p style=""margin: 30px 0 0 0; text-align: center; color: #666666; font-size: 14px;"">
+    This password reset link will expire in 1 hour for security reasons.<br/>
+    If you didn't request a password reset, please ignore this email.
+</p>";
 
-            await SendGenericEmailAsync(to, "Reset Password Request - DuneFlame", body);
+            var body = ApplyEmailTemplate("Password Reset Request", content);
+            await SendGenericEmailAsync(to, "Reset Your Password - Dune & Flame", body);
         }
         catch (Exception ex)
         {
@@ -181,13 +245,16 @@ public class SmtpEmailService(
         {
             var link = $"{_clientUrls.ApiBaseUrl}/api/v1/newsletter/verify?token={Uri.EscapeDataString(token)}";
 
-            var body = GetHtmlTemplate(
-                "Confirm Subscription",
-                "Stay updated with our latest collections and offers! Confirm your subscription to our newsletter below.",
-                "Subscribe Now",
-                link);
+            var content = $@"
+<p style=""margin: 0 0 20px 0; text-align: center;"">Thank you for subscribing to the <strong>Dune & Flame</strong> newsletter!</p>
+<p style=""margin: 0 0 30px 0; text-align: center;"">Stay updated with our latest premium coffee collections, exclusive offers, and brewing tips.</p>
+{CreateButton("Confirm Subscription", link)}
+<p style=""margin: 30px 0 0 0; text-align: center; color: #666666; font-size: 14px;"">
+    You can unsubscribe at any time by clicking the link in our emails.
+</p>";
 
-            await SendGenericEmailAsync(to, "Newsletter Subscription - DuneFlame", body);
+            var body = ApplyEmailTemplate("Newsletter Subscription", content);
+            await SendGenericEmailAsync(to, "Confirm Your Subscription - Dune & Flame", body);
         }
         catch (Exception ex)
         {
@@ -206,24 +273,50 @@ public class SmtpEmailService(
                 throw new ArgumentNullException(nameof(message));
             }
 
-            // Sanitize message content to prevent HTML injection
             var sanitizedName = System.Net.WebUtility.HtmlEncode(message.Name ?? "Unknown");
             var sanitizedEmail = System.Net.WebUtility.HtmlEncode(message.Email ?? "No Email");
             var sanitizedSubject = System.Net.WebUtility.HtmlEncode(message.Subject ?? "No Subject");
             var sanitizedMessage = System.Net.WebUtility.HtmlEncode(message.Message ?? "No Message");
 
-            var body = $@"
-            <div style='font-family: sans-serif; border: 1px solid #ddd; padding: 25px; border-radius: 8px;'>
-                <h2 style='color: #e67e22;'>New Support Request</h2>
-                <p><strong>Name:</strong> {sanitizedName}</p>
-                <p><strong>Email:</strong> {sanitizedEmail}</p>
-                <p><strong>Subject:</strong> {sanitizedSubject}</p>
-                <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p><strong>Message:</strong><br/>{sanitizedMessage}</p>
-                <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p style='font-size: 12px; color: #888;'>Received: {DateTime.UtcNow:O}</p>
-            </div>";
+            var content = $@"
+<div style=""background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; margin-bottom: 25px; border-radius: 4px;"">
+    <p style=""margin: 0; color: #92400e; font-weight: 600;"">⚠️ New Customer Support Request</p>
+</div>
 
+<table width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""margin-bottom: 20px;"">
+    <tr>
+        <td style=""padding: 12px 0; border-bottom: 1px solid #e5e5e5;"">
+            <strong style=""color: #2b1b13;"">Customer Name:</strong><br/>
+            <span style=""color: #555555;"">{sanitizedName}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style=""padding: 12px 0; border-bottom: 1px solid #e5e5e5;"">
+            <strong style=""color: #2b1b13;"">Email Address:</strong><br/>
+            <a href=""mailto:{sanitizedEmail}"" style=""color: #f59e0b; text-decoration: none;"">{sanitizedEmail}</a>
+        </td>
+    </tr>
+    <tr>
+        <td style=""padding: 12px 0; border-bottom: 1px solid #e5e5e5;"">
+            <strong style=""color: #2b1b13;"">Subject:</strong><br/>
+            <span style=""color: #555555;"">{sanitizedSubject}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style=""padding: 20px 0;"">
+            <strong style=""color: #2b1b13;"">Message:</strong><br/>
+            <div style=""margin-top: 10px; padding: 15px; background-color: #f9fafb; border-radius: 6px; color: #374151; line-height: 1.6;"">
+                {sanitizedMessage.Replace("\n", "<br/>")}
+            </div>
+        </td>
+    </tr>
+</table>
+
+<p style=""margin: 0; text-align: center; color: #999999; font-size: 13px;"">
+    Received: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC
+</p>";
+
+            var body = ApplyEmailTemplate("New Contact Form Submission", content);
             await SendGenericEmailAsync(_settings.FromEmail, $"[Contact Form] {sanitizedSubject}", body);
 
             _logger?.LogInformation("SendAdminContactAlertAsync: Admin alert sent for contact from {Email}", sanitizedEmail);
@@ -257,25 +350,36 @@ public class SmtpEmailService(
         {
             try
             {
-                // Extract base language code (e.g., "en" from "en-US")
                 var baseLanguageCode = languageCode?.ToLowerInvariant().Substring(0, Math.Min(2, languageCode?.Length ?? 0)) ?? "en";
-
-                // Build localized order tracking URL
                 var orderTrackingUrl = $"{_clientUrls.BaseUrl}/{baseLanguageCode}/dashboard/orders/{orderId}";
-
-                // Get localized subject and message based on language code
                 var (subject, title, message, buttonText) = GetLocalizedOrderConfirmation(languageCode, orderId, amount);
 
-                var body = GetHtmlTemplate(
-                    title,
-                    message,
-                    buttonText,
-                    orderTrackingUrl);
+                var content = $@"
+<div style=""text-align: center; margin-bottom: 30px;"">
+    <div style=""display: inline-block; background-color: #dcfce7; border: 2px solid #16a34a; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 32px;"">
+        ✓
+    </div>
+</div>
+<p style=""margin: 0 0 25px 0; text-align: center; font-size: 17px;"">{message}</p>
+<div style=""background-color: #fef9e7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 25px 0;"">
+    <table width=""100%"" cellpadding=""5"" cellspacing=""0"">
+        <tr>
+            <td style=""color: #2b1b13; font-weight: 600;"">Order ID:</td>
+            <td style=""color: #555555; text-align: right; font-family: monospace;"">{orderId:N}</td>
+        </tr>
+        <tr>
+            <td style=""color: #2b1b13; font-weight: 600;"">Total Amount:</td>
+            <td style=""color: #555555; text-align: right; font-weight: 700; font-size: 18px;"">${amount:F2}</td>
+        </tr>
+    </table>
+</div>
+{CreateButton(buttonText, orderTrackingUrl)}";
 
+                var body = ApplyEmailTemplate(title, content);
                 await SendGenericEmailAsync(to, subject, body);
                 _logger?.LogInformation(
-                    "SendOrderPaidAsync: Order paid email sent to {To} for OrderId {OrderId} in language {Language} with URL {TrackingUrl}",
-                    to, orderId, baseLanguageCode, orderTrackingUrl);
+                    "SendOrderPaidAsync: Order paid email sent to {To} for OrderId {OrderId} in language {Language}",
+                    to, orderId, baseLanguageCode);
             }
             catch (Exception ex)
             {
@@ -321,20 +425,32 @@ public class SmtpEmailService(
         {
             try
             {
-                var trackingInfo = string.IsNullOrWhiteSpace(trackingNumber)
-                    ? "Your tracking number will be available shortly."
-                    : $"Your tracking number is: <strong>{System.Net.WebUtility.HtmlEncode(trackingNumber)}</strong>";
-
                 var orderTrackingUrl = $"{_clientUrls.BaseUrl}/en/dashboard/orders/{orderId}";
 
-                var body = GetHtmlTemplate(
-                    "Your Order Has Shipped",
-                    $"Great news! Your order #{orderId:N} is on its way. {trackingInfo} " +
-                    "You can track your shipment through our website.",
-                    "Track Shipment",
-                    orderTrackingUrl);
+                var trackingInfo = string.IsNullOrWhiteSpace(trackingNumber)
+                    ? "<p style='margin: 20px 0; color: #666666;'>Your tracking number will be available shortly.</p>"
+                    : $@"<div style=""background-color: #fef9e7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;"">
+                            <p style=""margin: 0 0 10px 0; color: #2b1b13; font-weight: 600;"">Tracking Number:</p>
+                            <p style=""margin: 0; font-family: monospace; font-size: 18px; color: #f59e0b; font-weight: 700;"">{System.Net.WebUtility.HtmlEncode(trackingNumber)}</p>
+                         </div>";
 
-                await SendGenericEmailAsync(to, $"Your Order #{orderId:N} Has Shipped - DuneFlame", body);
+                var content = $@"
+<div style=""text-align: center; margin-bottom: 30px;"">
+    <div style=""display: inline-block; background-color: #dbeafe; border: 2px solid #3b82f6; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 32px;"">
+        📦
+    </div>
+</div>
+<p style=""margin: 0 0 20px 0; text-align: center; font-size: 17px;"">
+    Great news! Your order <strong>#{orderId:N}</strong> is on its way to you.
+</p>
+{trackingInfo}
+<p style=""margin: 20px 0; text-align: center; color: #666666;"">
+    You can track your shipment status anytime through your dashboard.
+</p>
+{CreateButton("Track Your Order", orderTrackingUrl)}";
+
+                var body = ApplyEmailTemplate("Your Order Has Shipped", content);
+                await SendGenericEmailAsync(to, $"Order #{orderId:N} Shipped - Dune & Flame", body);
                 _logger?.LogInformation("SendOrderShippedAsync: Order shipped email sent to {To} for OrderId {OrderId}", to, orderId);
             }
             catch (Exception ex)
@@ -353,14 +469,28 @@ public class SmtpEmailService(
             {
                 var shopMoreUrl = $"{_clientUrls.BaseUrl}/en/products";
 
-                var body = GetHtmlTemplate(
-                    "Your Order Has Been Delivered",
-                    $"Your order #{orderId:N} has been delivered! We hope you enjoy your purchase. " +
-                    "If you have any questions or need assistance, please don't hesitate to contact us.",
-                    "Shop More",
-                    shopMoreUrl);
+                var content = $@"
+<div style=""text-align: center; margin-bottom: 30px;"">
+    <div style=""display: inline-block; background-color: #dcfce7; border: 2px solid #16a34a; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 32px;"">
+        🎉
+    </div>
+</div>
+<p style=""margin: 0 0 20px 0; text-align: center; font-size: 17px;"">
+    Your order <strong>#{orderId:N}</strong> has been successfully delivered!
+</p>
+<p style=""margin: 0 0 25px 0; text-align: center; color: #666666;"">
+    We hope you enjoy your premium coffee. If you have any questions or need assistance, our support team is here to help.
+</p>
+<div style=""background-color: #fef9e7; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;"">
+    <p style=""margin: 0 0 10px 0; color: #2b1b13; font-size: 15px;"">💡 <strong>Brewing Tip:</strong></p>
+    <p style=""margin: 0; color: #555555; font-size: 14px; line-height: 1.6;"">
+        For the best flavor, store your coffee in an airtight container away from light and heat. Grind just before brewing for maximum freshness!
+    </p>
+</div>
+{CreateButton("Explore More Coffee", shopMoreUrl)}";
 
-                await SendGenericEmailAsync(to, $"Order #{orderId:N} Delivered - DuneFlame", body);
+                var body = ApplyEmailTemplate("Order Delivered Successfully", content);
+                await SendGenericEmailAsync(to, $"Order #{orderId:N} Delivered - Dune & Flame", body);
                 _logger?.LogInformation("SendOrderDeliveredAsync: Order delivered email sent to {To} for OrderId {OrderId}", to, orderId);
             }
             catch (Exception ex)
@@ -377,14 +507,41 @@ public class SmtpEmailService(
         {
             try
             {
-                var body = GetHtmlTemplate(
-                    "Order Cancelled",
-                    $"Your order #{orderId:N} has been cancelled. A refund of ${refundAmount:F2} will be processed to your original payment method " +
-                    "within 3-5 business days. If you have any questions, please contact our support team.",
-                    "Browse Products",
-                    "http://localhost:3000/products");
+                var productsUrl = $"{_clientUrls.BaseUrl}/en/products";
 
-                await SendGenericEmailAsync(to, $"Order #{orderId:N} Cancelled - DuneFlame", body);
+                var content = $@"
+<div style=""text-align: center; margin-bottom: 30px;"">
+    <div style=""display: inline-block; background-color: #fee2e2; border: 2px solid #ef4444; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 32px;"">
+        ❌
+    </div>
+</div>
+<p style=""margin: 0 0 20px 0; text-align: center; font-size: 17px;"">
+    Your order <strong>#{orderId:N}</strong> has been cancelled.
+</p>
+<div style=""background-color: #fef9e7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 25px 0;"">
+    <table width=""100%"" cellpadding=""5"" cellspacing=""0"">
+        <tr>
+            <td style=""color: #2b1b13; font-weight: 600;"">Refund Amount:</td>
+            <td style=""color: #555555; text-align: right; font-weight: 700; font-size: 18px;"">${refundAmount:F2}</td>
+        </tr>
+        <tr>
+            <td style=""color: #2b1b13; font-weight: 600;"">Processing Time:</td>
+            <td style=""color: #555555; text-align: right;"">3-5 business days</td>
+        </tr>
+        <tr>
+            <td colspan=""2"" style=""padding-top: 15px; color: #666666; font-size: 14px;"">
+                The refund will be processed to your original payment method.
+            </td>
+        </tr>
+    </table>
+</div>
+<p style=""margin: 20px 0; text-align: center; color: #666666;"">
+    If you have any questions about this cancellation or need assistance, please contact our support team.
+</p>
+{CreateButton("Browse Our Collection", productsUrl)}";
+
+                var body = ApplyEmailTemplate("Order Cancelled", content);
+                await SendGenericEmailAsync(to, $"Order #{orderId:N} Cancelled - Dune & Flame", body);
                 _logger?.LogInformation("SendOrderCancelledAsync: Order cancelled email sent to {To} for OrderId {OrderId}", to, orderId);
             }
             catch (Exception ex)

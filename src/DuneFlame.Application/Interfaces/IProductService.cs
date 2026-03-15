@@ -37,4 +37,7 @@ public interface IProductService
 
     // Delete
     Task DeleteAsync(Guid id);
+
+    // Restore (soft-deleted products)
+    Task RestoreAsync(Guid id);
 }

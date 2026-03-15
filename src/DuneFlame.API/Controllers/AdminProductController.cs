@@ -106,6 +106,24 @@ public class AdminProductController(
         }
     }
 
+    [HttpPatch("{id:guid}/restore")]
+    public async Task<IActionResult> RestoreProduct(Guid id)
+    {
+        try
+        {
+            await _productService.RestoreAsync(id);
+            return Ok(new { message = "Product restored successfully." });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     // Helper endpoint to get product by ID (for location header)
     [HttpGet("{id:guid}", Name = "GetProductById")]
     [AllowAnonymous]

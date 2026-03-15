@@ -41,6 +41,7 @@ public record FlavourNoteTranslationCreateDto(
 );
 
 public record ProductPriceCreateDto(
+    Guid? Id,
     Guid ProductWeightId,
     decimal Price,
     string CurrencyCode = "USD"

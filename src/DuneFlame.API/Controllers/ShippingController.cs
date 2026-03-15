@@ -150,4 +150,80 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
                 new { message = "An error occurred while retrieving country information.", error = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Calculates dynamic shipping cost for Express Checkout (Apple Pay/Google Pay).
+    /// Used by frontend to update shipping price when user selects a shipping address.
+    /// Applies promotion logic (free shipping for high-value orders).
+    /// </summary>
+    /// <param name="request">Shipping calculation request containing country code, currency, and subtotal.</param>
+    /// <returns>Calculated shipping price and availability status.</returns>
+    /// <response code="200">Successfully calculated shipping cost.</response>
+    /// <response code="400">Invalid request parameters.</response>
+    /// <response code="500">Internal server error.</response>
+    [HttpPost("calculate")]
+    [ProducesResponseType(typeof(CalculateShippingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CalculateShipping([FromBody] CalculateShippingRequest request)
+    {
+        try
+        {
+            // Validate request
+            if (request == null || string.IsNullOrWhiteSpace(request.CountryCode) || string.IsNullOrWhiteSpace(request.Currency))
+            {
+                return BadRequest(new { message = "CountryCode and Currency are required." });
+            }
+
+            if (request.Subtotal < 0)
+            {
+                return BadRequest(new { message = "Subtotal cannot be negative." });
+            }
+
+            // Normalize country code to 2 characters (following copilot instructions)
+            string normalizedCountryCode = request.CountryCode.Length > 2 
+                ? request.CountryCode.Substring(0, 2) 
+                : request.CountryCode;
+
+            // Validate and parse currency
+            if (!Enum.TryParse<DuneFlame.Domain.Enums.Currency>(request.Currency, ignoreCase: true, out var currency))
+            {
+                return BadRequest(new { message = "Invalid currency. Supported currencies: USD, AED." });
+            }
+
+            // Check if country exists and is active
+            var country = await _shippingService.GetCountryByCodeAsync(normalizedCountryCode);
+            if (country == null || !country.IsActive)
+            {
+                return Ok(new CalculateShippingResponse
+                {
+                    ShippingPrice = 0,
+                    Currency = request.Currency,
+                    Available = false,
+                    Status = "invalid_shipping_address",
+                    Message = $"Shipping is not available to {normalizedCountryCode}."
+                });
+            }
+
+            // Calculate shipping cost with promotion logic
+            var shippingPrice = await _shippingService.GetShippingCostWithPromotionAsync(
+                normalizedCountryCode,
+                currency,
+                request.Subtotal);
+
+            return Ok(new CalculateShippingResponse
+            {
+                ShippingPrice = shippingPrice,
+                Currency = request.Currency,
+                Available = true,
+                Status = "success",
+                Message = "Shipping cost calculated successfully."
+            });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { message = "An error occurred while calculating shipping cost.", error = ex.Message });
+        }
+    }
 }
