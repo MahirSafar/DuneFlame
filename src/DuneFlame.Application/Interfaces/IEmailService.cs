@@ -13,4 +13,5 @@ public interface IEmailService
     Task SendOrderShippedAsync(string to, Guid orderId, string trackingNumber = "");
     Task SendOrderDeliveredAsync(string to, Guid orderId);
     Task SendOrderCancelledAsync(string to, Guid orderId, decimal refundAmount);
+    Task SendNewsletterCampaignAsync(string to, string subject, string htmlContent);
 }

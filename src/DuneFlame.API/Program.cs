@@ -195,9 +195,7 @@ builder.Services.AddApiVersioning(options =>
 
 // --- 7. HEALTH CHECKS ---
 builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Postgres") ?? "", name: "db")
-    .AddRedis(builder.Configuration.GetConnectionString("Redis") ?? "", name: "redis");
-
+    .AddNpgSql(builder.Configuration.GetConnectionString("Postgres") ?? "", name: "db");
 // ==========================================
 // === BUILD APP (MIDDLEWARE BAŞLAYIR) ===
 // ==========================================

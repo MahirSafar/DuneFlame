@@ -11,9 +11,10 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/auth")]
 [ApiController]
 [EnableRateLimiting("AuthPolicy")]
-public class AuthController(IAuthService authService, IConfiguration config, IWebHostEnvironment env, ILogger<AuthController> logger) : ControllerBase
+public class AuthController(IAuthService authService, IBasketService basketService, IConfiguration config, IWebHostEnvironment env, ILogger<AuthController> logger) : ControllerBase
 {
     private readonly IAuthService _authService = authService;
+    private readonly IBasketService _basketService = basketService;
     private readonly IConfiguration _config = config;
     private readonly IWebHostEnvironment _env = env;
     private readonly ILogger<AuthController> _logger = logger;
@@ -29,6 +30,16 @@ public class AuthController(IAuthService authService, IConfiguration config, IWe
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var result = await _authService.LoginAsync(request);
+
+        // Intercept: Delete guest basket upon successful login
+        if (Request.Headers.TryGetValue("X-Guest-Basket-Id", out var guestBasketId))
+        {
+            if (!string.IsNullOrWhiteSpace(guestBasketId))
+            {
+                await _basketService.DeleteBasketAsync(guestBasketId.ToString());
+            }
+        }
+
         return Ok(result);
     }
 

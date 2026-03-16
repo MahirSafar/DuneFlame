@@ -89,13 +89,17 @@ public class NewsletterService(
 
         foreach (var sub in subscribers)
         {
-            var unsubscribeLink = $"{_clientUrls.ApiBaseUrl}/api/v1/newsletter/unsubscribe?token={sub.UnsubscribeToken}";
-            var footer = $"<br/><hr/><small>Don't want these emails? <a href='{unsubscribeLink}'>Unsubscribe</a></small>";
+            var unsubscribeLink = $"{_clientUrls.BaseUrl}/en/unsubscribe?token={sub.UnsubscribeToken}";
+            var footer = $@"
+<div style=""margin-top: 40px; padding-top: 20px; border-top: 1px solid #FBEDDC; text-align: center; font-size: 12px; color: #666666;"">
+    Don't want these emails anymore? 
+    <a href=""{unsubscribeLink}"" style=""color: #CC3323; text-decoration: underline;"">Unsubscribe safely here</a>.
+</div>";
 
             try
             {
-                // Artıq birbaşa Generic metodu çağırırıq
-                await _emailService.SendGenericEmailAsync(sub.Email, request.Subject, request.Content + footer);
+                // Use the premium campaign sender
+                await _emailService.SendNewsletterCampaignAsync(sub.Email, request.Subject, request.Content + footer);
                 successCount++;
             }
             catch (Exception ex)

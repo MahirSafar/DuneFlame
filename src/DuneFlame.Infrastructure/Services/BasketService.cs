@@ -1,13 +1,15 @@
 using DuneFlame.Application.DTOs.Basket;
 using DuneFlame.Application.Interfaces;
-using Microsoft.Extensions.Caching.Distributed;
+using DuneFlame.Domain.Entities;
+using DuneFlame.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
 namespace DuneFlame.Infrastructure.Services;
 
-public class BasketService(IDistributedCache cache) : IBasketService
+public class BasketService(AppDbContext context) : IBasketService
 {
-    private readonly IDistributedCache _cache = cache;
+    private readonly AppDbContext _context = context;
 
     public async Task<CustomerBasketDto> GetBasketAsync(string userId)
     {
@@ -16,15 +18,15 @@ public class BasketService(IDistributedCache cache) : IBasketService
             throw new ArgumentException("User ID cannot be null or empty.", nameof(userId));
         }
 
-        var basketJson = await _cache.GetStringAsync(userId);
+        var basketEntity = await _context.CustomerBaskets.FirstOrDefaultAsync(b => b.Id == userId);
 
-        if (string.IsNullOrEmpty(basketJson))
+        if (basketEntity == null || string.IsNullOrEmpty(basketEntity.Items) || basketEntity.ExpiresAt < DateTimeOffset.UtcNow)
         {
             return new CustomerBasketDto { Id = userId, Items = [] };
         }
 
-        return JsonSerializer.Deserialize<CustomerBasketDto>(basketJson) 
-            ?? new CustomerBasketDto { Id = userId, Items = [] };
+        var items = JsonSerializer.Deserialize<List<BasketItemDto>>(basketEntity.Items) ?? [];
+        return new CustomerBasketDto { Id = userId, Items = items };
     }
 
     public async Task UpdateBasketAsync(CustomerBasketDto basket)
@@ -34,13 +36,27 @@ public class BasketService(IDistributedCache cache) : IBasketService
             throw new ArgumentException("Basket and Basket.Id cannot be null or empty.", nameof(basket));
         }
 
-        var basketJson = JsonSerializer.Serialize(basket);
-        var options = new DistributedCacheEntryOptions
-        {
-            AbsoluteExpiration = DateTimeOffset.UtcNow.AddDays(30)
-        };
+        var itemsJson = JsonSerializer.Serialize(basket.Items ?? []);
+        var basketEntity = await _context.CustomerBaskets.FirstOrDefaultAsync(b => b.Id == basket.Id);
 
-        await _cache.SetStringAsync(basket.Id, basketJson, options);
+        if (basketEntity == null)
+        {
+            basketEntity = new CustomerBasket
+            {
+                Id = basket.Id,
+                Items = itemsJson,
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(3)
+            };
+            _context.CustomerBaskets.Add(basketEntity);
+        }
+        else
+        {
+            basketEntity.Items = itemsJson;
+            basketEntity.ExpiresAt = DateTimeOffset.UtcNow.AddDays(3);
+            _context.CustomerBaskets.Update(basketEntity);
+        }
+
+        await _context.SaveChangesAsync();
     }
 
     public async Task DeleteBasketAsync(string userId)
@@ -50,7 +66,12 @@ public class BasketService(IDistributedCache cache) : IBasketService
             throw new ArgumentException("User ID cannot be null or empty.", nameof(userId));
         }
 
-        await _cache.RemoveAsync(userId);
+        var basketEntity = await _context.CustomerBaskets.FirstOrDefaultAsync(b => b.Id == userId);
+        if (basketEntity != null)
+        {
+            _context.CustomerBaskets.Remove(basketEntity);
+            await _context.SaveChangesAsync();
+        }
     }
 
     public async Task RemoveItemFromBasketAsync(string userId, Guid itemId)

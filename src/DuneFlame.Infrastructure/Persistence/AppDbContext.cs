@@ -40,6 +40,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ShippingRate> ShippingRates { get; set; }
     public DbSet<Slider> Sliders { get; set; }
     public DbSet<SliderTranslation> SliderTranslations { get; set; }
+    public DbSet<CustomerBasket> CustomerBaskets { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +50,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<ApplicationUser>().ToTable("Users");
         modelBuilder.Entity<IdentityRole<Guid>>().ToTable("Roles");
         modelBuilder.Entity<IdentityUserRole<Guid>>().ToTable("UserRoles");
+
+        modelBuilder.Entity<CustomerBasket>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ToTable("CustomerBaskets");
+            entity.IsUnlogged();
+            entity.Property(e => e.Items).HasColumnType("jsonb");
+        });
 
         modelBuilder.Entity<RefreshToken>(entity =>
         {

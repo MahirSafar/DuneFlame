@@ -13,13 +13,16 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
     private readonly IBasketService _basketService = basketService;
     private readonly ICurrencyProvider _currencyProvider = currencyProvider;
 
-    /// <summary>
-    /// Gets the authenticated user's ID from claims, or returns null for guest users.
-    /// </summary>
-    private string? GetUserId()
+    // SEHRBAZ METOD: Giriş etmiş istifadəçilərin ID-sini avtomatik tapır
+    // Kimsə başqasının səbətinə nəsə ata bilməsin deyə qoruyur.
+    private string ResolveBasketId(string providedId)
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return string.IsNullOrEmpty(userIdClaim) ? null : userIdClaim;
+        if (User.Identity is { IsAuthenticated: true })
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!string.IsNullOrEmpty(userId)) return userId;
+        }
+        return providedId;
     }
 
     [HttpGet("{id}")]
@@ -28,23 +31,12 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
     {
         try
         {
-            // For authenticated users: Optionally allow them to fetch using their ID or a provided ID
-            var authenticatedUserId = GetUserId();
-            var basketId = authenticatedUserId ?? id;
+            var targetId = ResolveBasketId(id);
+            if (string.IsNullOrWhiteSpace(targetId)) return BadRequest(new { message = "Basket ID is required" });
 
-            if (string.IsNullOrWhiteSpace(basketId))
-            {
-                return BadRequest(new { message = "Basket ID is required" });
-            }
-
-            var basket = await _basketService.GetBasketAsync(basketId);
-            // Ensure currency is set from request header
+            var basket = await _basketService.GetBasketAsync(targetId);
             basket.CurrencyCode = _currencyProvider.GetCurrentCurrencyCode();
             return Ok(basket);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
         }
         catch (Exception ex)
         {
@@ -58,21 +50,10 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
     {
         try
         {
-            if (basket == null || string.IsNullOrWhiteSpace(basket.Id))
-            {
-                return BadRequest(new { message = "Basket ID is required" });
-            }
+            if (basket == null || string.IsNullOrWhiteSpace(basket.Id)) return BadRequest(new { message = "Basket ID is required" });
 
-            // For authenticated users: Force basket.Id to their UserId to ensure persistence
-            var authenticatedUserId = GetUserId();
-            if (!string.IsNullOrEmpty(authenticatedUserId))
-            {
-                // User is logged in - tie basket to their account
-                basket.Id = authenticatedUserId;
-            }
-            // For guest users: Use the provided ID from frontend (guest_xyz format)
-
-            // Set currency from request header
+            // Əgər istifadəçi giriş edibsə, səbət avtomatik onun öz profilinə (JSONB) yazılacaq
+            basket.Id = ResolveBasketId(basket.Id);
             basket.CurrencyCode = _currencyProvider.GetCurrentCurrencyCode();
 
             await _basketService.UpdateBasketAsync(basket);
@@ -90,16 +71,8 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
     {
         try
         {
-            // For authenticated users: Use their UserId instead of provided ID
-            var authenticatedUserId = GetUserId();
-            var basketId = authenticatedUserId ?? id;
-
-            if (string.IsNullOrWhiteSpace(basketId))
-            {
-                return BadRequest(new { message = "Basket ID is required" });
-            }
-
-            await _basketService.RemoveItemFromBasketAsync(basketId, itemId);
+            var targetId = ResolveBasketId(id);
+            await _basketService.RemoveItemFromBasketAsync(targetId, itemId);
             return Ok(new { message = "Basket item removed successfully" });
         }
         catch (Exception ex)
@@ -114,16 +87,8 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
     {
         try
         {
-            // For authenticated users: Use their UserId instead of provided ID
-            var authenticatedUserId = GetUserId();
-            var basketId = authenticatedUserId ?? id;
-
-            if (string.IsNullOrWhiteSpace(basketId))
-            {
-                return BadRequest(new { message = "Basket ID is required" });
-            }
-
-            await _basketService.DeleteBasketAsync(basketId);
+            var targetId = ResolveBasketId(id);
+            await _basketService.DeleteBasketAsync(targetId);
             return Ok(new { message = "Basket deleted successfully" });
         }
         catch (Exception ex)
