@@ -251,6 +251,59 @@ public class ProductService(
         return product.Id;
     }
 
+    public async Task<DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto?> GetUpsellRecommendationAsync(decimal gapAmount, List<Guid> excludedProductPriceIds, string currencyCode)
+    {
+        var targetCurrency = ParseCurrencyCode(currencyCode);
+        var languageCode = ExtractLanguageFromRequest();
+
+        var query = _context.ProductPrices
+            .Include(pp => pp.Product)
+                .ThenInclude(p => p.Translations)
+            .Include(pp => pp.Product)
+                .ThenInclude(p => p.Images)
+            .Include(pp => pp.Weight)
+            .Where(pp => pp.Product != null && pp.Product.IsActive && pp.Product.StockInKg > 0)
+            .Where(pp => pp.CurrencyCode == targetCurrency);
+
+        if (excludedProductPriceIds != null && excludedProductPriceIds.Any())
+        {
+            query = query.Where(pp => !excludedProductPriceIds.Contains(pp.Id));
+        }
+
+        var bestPrice = await query
+            .Where(pp => pp.Price >= gapAmount)
+            .OrderBy(pp => pp.Price)
+            .FirstOrDefaultAsync();
+
+        if (bestPrice == null)
+        {
+            bestPrice = await query
+                .Where(pp => pp.Price < gapAmount)
+                .OrderByDescending(pp => pp.Price)
+                .FirstOrDefaultAsync();
+        }
+
+        if (bestPrice == null || bestPrice.Product == null) 
+            return null;
+
+        var name = bestPrice.Product.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.Name 
+                   ?? bestPrice.Product.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
+                   ?? "Recommended Product";
+
+        var image = bestPrice.Product.Images?.OrderByDescending(i => i.IsMain).FirstOrDefault()?.ImageUrl;
+
+        return new DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto
+        {
+            ProductId = bestPrice.ProductId,
+            ProductPriceId = bestPrice.Id,
+            Name = name,
+            ImageUrl = image,
+            Price = bestPrice.Price,
+            CurrencyCode = bestPrice.CurrencyCode.ToString(),
+            WeightLabel = bestPrice.Weight?.Label ?? string.Empty
+        };
+    }
+
     public async Task<ProductResponse> GetByIdAsync(Guid id)
     {
         var currentCurrency = _currencyProvider.GetCurrentCurrency();

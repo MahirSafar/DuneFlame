@@ -8,10 +8,11 @@ namespace DuneFlame.API.Controllers;
 
 [Route("api/v1/basket")]
 [ApiController]
-public class BasketController(IBasketService basketService, ICurrencyProvider currencyProvider) : ControllerBase
+public class BasketController(IBasketService basketService, ICurrencyProvider currencyProvider, IProductService productService) : ControllerBase
 {
     private readonly IBasketService _basketService = basketService;
     private readonly ICurrencyProvider _currencyProvider = currencyProvider;
+    private readonly IProductService _productService = productService;
 
     // SEHRBAZ METOD: Giriş etmiş istifadəçilərin ID-sini avtomatik tapır
     // Kimsə başqasının səbətinə nəsə ata bilməsin deyə qoruyur.
@@ -90,6 +91,40 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
             var targetId = ResolveBasketId(id);
             await _basketService.DeleteBasketAsync(targetId);
             return Ok(new { message = "Basket deleted successfully" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("recommendation/stateless")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetRecommendationStateless([FromBody] UpsellRequestDto request)
+    {
+        try
+        {
+            var currentCurrency = _currencyProvider.GetCurrentCurrency().ToString();
+            decimal threshold = currentCurrency == "AED" ? 200m : 55m;
+
+            if (request.CurrentSubtotal >= threshold)
+            {
+                return NoContent();
+            }
+
+            decimal gap = threshold - request.CurrentSubtotal;
+
+            var recommendation = await _productService.GetUpsellRecommendationAsync(gap, request.ExcludedProductPriceIds, currentCurrency);
+
+            var response = new UpsellResponseDto
+            {
+                TargetThreshold = threshold,
+                CurrentSubtotal = request.CurrentSubtotal,
+                GapAmount = gap,
+                Recommendation = recommendation
+            };
+
+            return Ok(response);
         }
         catch (Exception ex)
         {

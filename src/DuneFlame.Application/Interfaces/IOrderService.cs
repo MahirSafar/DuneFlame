@@ -8,4 +8,5 @@ public interface IOrderService
     Task<List<OrderDto>> GetMyOrdersAsync(Guid userId);
     Task<OrderDto> GetOrderByIdAsync(Guid id);
     Task ProcessPaymentSuccessAsync(string transactionId);
+    Task CancelAbandonedOrderAsync(Guid orderId);
 }

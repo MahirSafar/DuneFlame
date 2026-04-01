@@ -8,6 +8,9 @@ public interface IProductService
     // Create
     Task<Guid> CreateAsync(CreateProductRequest request);
 
+    // Smart Upsell
+    Task<DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto?> GetUpsellRecommendationAsync(decimal gapAmount, List<Guid> excludedProductPriceIds, string currencyCode);
+
     // Read - Currency is now determined by ICurrencyProvider (scoped to request)
     Task<ProductResponse> GetByIdAsync(Guid id);
     Task<ProductResponse> GetBySlugAsync(string slug);

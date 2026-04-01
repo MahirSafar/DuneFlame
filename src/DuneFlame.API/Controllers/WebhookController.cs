@@ -132,6 +132,8 @@ public class WebhookController(
                     if (!string.IsNullOrEmpty(userEmail))
                     {
                         await _emailService.SendOrderPaidAsync(userEmail, order.Id, order.TotalAmount, order.LanguageCode);
+                        await _emailService.SendOrderPaidAsync("mehdisafarov.ms@gmail.com", order.Id, order.TotalAmount, order.LanguageCode);
+                        await _emailService.SendOrderPaidAsync("info@duneflame.com", order.Id, order.TotalAmount, order.LanguageCode);
                         _logger.LogInformation("Order paid email sent for Order {OrderId}", order.Id);
                     }
                 }

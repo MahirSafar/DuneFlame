@@ -29,7 +29,7 @@ public class BasketService(AppDbContext context) : IBasketService
         return new CustomerBasketDto { Id = userId, Items = items };
     }
 
-    public async Task UpdateBasketAsync(CustomerBasketDto basket)
+    public async Task UpdateBasketAsync(CustomerBasketDto basket, bool saveChanges = true)
     {
         if (basket == null || string.IsNullOrWhiteSpace(basket.Id))
         {
@@ -56,7 +56,7 @@ public class BasketService(AppDbContext context) : IBasketService
             _context.CustomerBaskets.Update(basketEntity);
         }
 
-        await _context.SaveChangesAsync();
+        if (saveChanges) { await _context.SaveChangesAsync(); }
     }
 
     public async Task DeleteBasketAsync(string userId)
@@ -74,7 +74,7 @@ public class BasketService(AppDbContext context) : IBasketService
         }
     }
 
-    public async Task RemoveItemFromBasketAsync(string userId, Guid itemId)
+    public async Task RemoveItemFromBasketAsync(string userId, Guid itemId, bool saveChanges = true)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
@@ -100,6 +100,6 @@ public class BasketService(AppDbContext context) : IBasketService
         }
 
         basket.Items.Remove(itemToRemove);
-        await UpdateBasketAsync(basket);
+        await UpdateBasketAsync(basket, saveChanges);
     }
 }

@@ -66,7 +66,7 @@ public class RewardService(AppDbContext context) : IRewardService
     /// PHASE 2 (SHADOW): Apply balance update via atomic SQL
     /// PHASE 3 (COMMIT): Record transaction entry
     /// </summary>
-    public async Task EarnPointsAsync(Guid userId, Guid orderId, decimal amount)
+    public async Task EarnPointsAsync(Guid userId, Guid orderId, decimal amount, bool saveChanges = true)
     {
         // PHASE 1: Idempotency Check (prevent duplicate earnings)
         var existingTransaction = await _context.RewardTransactions
@@ -98,7 +98,7 @@ public class RewardService(AppDbContext context) : IRewardService
         };
 
         _context.RewardTransactions.Add(transaction);
-        await _context.SaveChangesAsync();
+        if (saveChanges) { await _context.SaveChangesAsync(); }
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ public class RewardService(AppDbContext context) : IRewardService
     /// PHASE 2 (SHADOW): Apply balance update via atomic SQL
     /// PHASE 3 (COMMIT): Record transaction entry
     /// </summary>
-    public async Task RedeemPointsAsync(Guid userId, decimal amount, Guid orderId)
+    public async Task RedeemPointsAsync(Guid userId, decimal amount, Guid orderId, bool saveChanges = true)
     {
         // PHASE 1: Fetch wallet for validation (read-only, no tracking)
         var wallet = await _context.RewardWallets
@@ -141,7 +141,7 @@ public class RewardService(AppDbContext context) : IRewardService
         };
 
         _context.RewardTransactions.Add(transaction);
-        await _context.SaveChangesAsync();
+        if (saveChanges) { await _context.SaveChangesAsync(); }
     }
 
     /// <summary>

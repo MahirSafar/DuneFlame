@@ -125,4 +125,23 @@ public class OrderController(
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Cancel an abandoned order and unlock the basket
+    /// POST /api/v1/orders/{id}/cancel
+    /// </summary>
+    [HttpPost("{id:guid}/cancel")]
+    [AllowAnonymous]
+    public async Task<IActionResult> CancelOrder(Guid id)
+    {
+        try
+        {
+            await _orderService.CancelAbandonedOrderAsync(id);
+            return Ok(new { message = "Order is cancelled" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

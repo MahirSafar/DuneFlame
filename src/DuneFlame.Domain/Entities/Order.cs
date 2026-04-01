@@ -7,6 +7,7 @@ namespace DuneFlame.Domain.Entities;
 public class Order : BaseEntity
 {
     public Guid? UserId { get; set; }
+    public string BasketId { get; set; } = string.Empty;
     public ApplicationUser? ApplicationUser { get; set; }
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public decimal TotalAmount { get; set; }
