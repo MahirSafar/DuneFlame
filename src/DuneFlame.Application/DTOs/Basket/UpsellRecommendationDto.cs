@@ -11,4 +11,5 @@ public class UpsellRecommendationDto
     public decimal Price { get; set; }
     public string CurrencyCode { get; set; } = string.Empty;
     public string WeightLabel { get; set; } = string.Empty;
+    public Dictionary<string, decimal> AvailablePrices { get; set; } = new();
 }

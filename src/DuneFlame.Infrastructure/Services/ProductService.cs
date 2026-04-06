@@ -292,6 +292,10 @@ public class ProductService(
 
         var image = bestPrice.Product.Images?.OrderByDescending(i => i.IsMain).FirstOrDefault()?.ImageUrl;
 
+        var availablePrices = await _context.ProductPrices
+            .Where(pp => pp.ProductId == bestPrice.ProductId && pp.ProductWeightId == bestPrice.ProductWeightId)
+            .ToDictionaryAsync(pp => pp.CurrencyCode.ToString(), pp => pp.Price);
+
         return new DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto
         {
             ProductId = bestPrice.ProductId,
@@ -300,7 +304,8 @@ public class ProductService(
             ImageUrl = image,
             Price = bestPrice.Price,
             CurrencyCode = bestPrice.CurrencyCode.ToString(),
-            WeightLabel = bestPrice.Weight?.Label ?? string.Empty
+            WeightLabel = bestPrice.Weight?.Label ?? string.Empty,
+            AvailablePrices = availablePrices
         };
     }
 
