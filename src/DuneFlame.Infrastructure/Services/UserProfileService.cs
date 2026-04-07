@@ -1,6 +1,7 @@
 ﻿using DuneFlame.Application.DTOs.User;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using DuneFlame.Infrastructure.Persistence; // AppDbContext üçün
 
@@ -10,7 +11,7 @@ public class UserProfileService(AppDbContext context) : IUserProfileService
 {
     private readonly AppDbContext _context = context;
 
-    public async Task<UserProfile> GetOrCreateProfileAsync(Guid userId)
+    public async Task<UserProfile> GetOrCreateProfileEntityAsync(Guid userId)
     {
         var profile = await _context.UserProfiles
             .Include(u => u.User) // User məlumatlarını da gətir (Ad, Soyad, Email)
@@ -29,9 +30,31 @@ public class UserProfileService(AppDbContext context) : IUserProfileService
         return profile;
     }
 
+    public async Task<UserProfileDto> GetOrCreateProfileAsync(Guid userId)
+    {
+        var profile = await GetOrCreateProfileEntityAsync(userId);
+
+        bool hasOrders = await _context.Orders
+            .AnyAsync(o => o.UserId == userId && o.Status != OrderStatus.Cancelled && o.Status != OrderStatus.Pending);
+
+        return new UserProfileDto
+        {
+            UserId = profile.UserId,
+            FirstName = profile.User?.FirstName,
+            LastName = profile.User?.LastName,
+            Email = profile.User?.Email,
+            Address = profile.Address,
+            City = profile.City,
+            Country = profile.Country,
+            AvatarUrl = profile.AvatarUrl,
+            DateOfBirth = profile.DateOfBirth,
+            HasOrders = hasOrders
+        };
+    }
+
     public async Task UpdateProfileAsync(Guid userId, UpdateProfileRequest request)
     {
-        var profile = await GetOrCreateProfileAsync(userId);
+        var profile = await GetOrCreateProfileEntityAsync(userId);
 
         // Partial Update: Yalnız dolu gələn sahələri yenilə
         if (!string.IsNullOrEmpty(request.Address)) profile.Address = request.Address;

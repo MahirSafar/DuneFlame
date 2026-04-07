@@ -7,5 +7,6 @@ public record AuthResponse(
     string LastName,
     string AccessToken,
     string RefreshToken,
-    List<string> Roles
+    List<string> Roles,
+    bool HasOrders
 );

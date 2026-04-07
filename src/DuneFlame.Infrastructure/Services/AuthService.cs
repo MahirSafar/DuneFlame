@@ -1,6 +1,7 @@
 ﻿using DuneFlame.Application.DTOs.Auth;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Enums;
 using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Persistence;
@@ -214,6 +215,8 @@ public class AuthService(
                 var roles = await _userManager.GetRolesAsync(user);
                 var accessToken = _jwtTokenGenerator.GenerateAccessToken(user, roles);
 
+                bool hasOrders = await _context.Orders.AnyAsync(o => o.UserId == user.Id && o.Status != OrderStatus.Cancelled && o.Status != OrderStatus.Pending);
+
                 return new AuthResponse(
                     user.Id,
                     user.Email!,
@@ -221,7 +224,8 @@ public class AuthService(
                     user.LastName,
                     accessToken,
                     newestToken.Token,
-                    roles.ToList()
+                    roles.ToList(),
+                    hasOrders
                 );
             }
             else
@@ -264,6 +268,8 @@ public class AuthService(
         await _context.RefreshTokens.AddAsync(refreshToken);
         await _context.SaveChangesAsync();
 
+        bool hasOrders = await _context.Orders.AnyAsync(o => o.UserId == user.Id && o.Status != OrderStatus.Cancelled && o.Status != OrderStatus.Pending);
+
         return new AuthResponse(
             user.Id,
             user.Email!,
@@ -271,7 +277,8 @@ public class AuthService(
             user.LastName,
             accessToken,
             refreshToken.Token,
-            roles.ToList()
+            roles.ToList(),
+            hasOrders
         );
     }
     public async Task<bool> VerifyEmailAsync(string userId, string token)

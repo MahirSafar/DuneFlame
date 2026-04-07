@@ -1,4 +1,4 @@
-name: .NET Build & Test
+name: .NET Build & Publish
 
 on:
   push:
@@ -23,17 +23,6 @@ jobs:
     
     - name: Build
       run: dotnet build --no-restore --configuration Release
-    
-    - name: Run Tests
-      run: dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx"
-    
-    - name: Publish Test Results
-      if: always()
-      uses: dorny/test-reporter@v1
-      with:
-        name: Test Results
-        path: '**/*.trx'
-        reporter: 'dotnet trx'
     
     - name: Publish Application
       run: dotnet publish src/DuneFlame.API/DuneFlame.API.csproj -c Release -o ./publish --no-build

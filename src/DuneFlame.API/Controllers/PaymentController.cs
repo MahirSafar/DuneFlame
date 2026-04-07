@@ -79,7 +79,22 @@ public class PaymentController(
                 totalAmount += item.Price * item.Quantity;
             }
 
-            // ZERO-AMOUNT CHECK: If total is 0 or negative (shouldn't happen if order was created properly,
+            // WELCOME DISCOUNT LOGIC for first time buyers
+            if (userId.HasValue)
+            {
+                bool hasOrders = await _context.Orders.AnyAsync(o => 
+                    o.UserId == userId.Value && 
+                    o.Status != DuneFlame.Domain.Enums.OrderStatus.Cancelled && 
+                    o.Status != DuneFlame.Domain.Enums.OrderStatus.Pending);
+
+                if (!hasOrders)
+                {
+                    decimal welcomeDiscount = Math.Round(totalAmount * 0.10m, 2);
+                    totalAmount -= welcomeDiscount;
+                }
+            }
+
+            // ZERO-AMOUNT CHECK: If total is 0 or negative
             // but this is a safety check), return without calling Stripe
             if (totalAmount <= 0)
             {

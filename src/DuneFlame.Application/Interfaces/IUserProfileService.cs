@@ -5,6 +5,6 @@ namespace DuneFlame.Application.Interfaces;
 
 public interface IUserProfileService
 {
-    Task<UserProfile> GetOrCreateProfileAsync(Guid userId);
+    Task<UserProfileDto> GetOrCreateProfileAsync(Guid userId);
     Task UpdateProfileAsync(Guid userId, UpdateProfileRequest request);
 }

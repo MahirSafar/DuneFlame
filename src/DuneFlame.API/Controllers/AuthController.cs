@@ -142,7 +142,8 @@ public class AuthController(IAuthService authService, IBasketService basketServi
                 $"email={Uri.EscapeDataString(response.Email)}&" +
                 $"firstName={Uri.EscapeDataString(response.FirstName)}&" +
                 $"lastName={Uri.EscapeDataString(response.LastName)}&" +
-                $"roles={Uri.EscapeDataString(string.Join(",", response.Roles))}";
+                $"roles={Uri.EscapeDataString(string.Join(",", response.Roles))}&" +
+                $"hasOrders={response.HasOrders.ToString().ToLower()}";
 
             return Redirect(redirectUrl);
         }

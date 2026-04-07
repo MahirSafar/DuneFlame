@@ -217,6 +217,22 @@ public class OrderService(
                     subtotal += requestedCurrencyPrice.Price * basketItem.Quantity;
                 }
 
+                decimal originalSubtotalForShipping = subtotal;
+
+                // WELCOME DISCOUNT LOGIC for first time buyers
+                decimal welcomeDiscount = 0;
+                if (userId.HasValue)
+                {
+                    bool hasPreviousOrders = await _context.Orders.AnyAsync(o => o.UserId == userId.Value && o.Status != OrderStatus.Cancelled && o.Status != OrderStatus.Pending);
+                    if (!hasPreviousOrders)
+                    {
+                        welcomeDiscount = Math.Round(subtotal * 0.10m, 2);
+                        subtotal -= welcomeDiscount;
+
+                        _logger.LogInformation("Applied 10% welcome discount of {DiscountAmount} for user {UserId}", welcomeDiscount, userId.Value);
+                    }
+                }
+
                 // VALIDATION: Check if country code looks valid (should be ISO 2-letter code)
                 if (request.ShippingAddress.Country.Length > 2)
                 {
@@ -230,7 +246,7 @@ public class OrderService(
                 var shippingCost = await _shippingService.GetShippingCostWithPromotionAsync(
                     request.ShippingAddress.Country,
                     order.CurrencyCode,
-                    subtotal);
+                    originalSubtotalForShipping);
 
                 // Calculate total: Subtotal + Shipping
                 var totalAmount = subtotal + shippingCost;
@@ -755,12 +771,26 @@ public class OrderService(
                 }
             }
 
+            decimal originalSubtotalForShipping = subtotal;
+
+            // WELCOME DISCOUNT LOGIC for first time buyers in expected total
+            decimal welcomeDiscount = 0;
+            if (userId.HasValue)
+            {
+                bool hasPreviousOrders = await _context.Orders.AnyAsync(o => o.UserId == userId.Value && o.Status != OrderStatus.Cancelled && o.Status != OrderStatus.Pending);
+                if (!hasPreviousOrders)
+                {
+                    welcomeDiscount = Math.Round(subtotal * 0.10m, 2);
+                    subtotal -= welcomeDiscount;
+                }
+            }
+
             // Get shipping cost with promotion logic
             var currency = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
             var shippingCost = await _shippingService.GetShippingCostWithPromotionAsync(
                 request.ShippingAddress.Country,
                 currency,
-                subtotal);
+                originalSubtotalForShipping);
 
             var totalAmount = subtotal + shippingCost;
 
