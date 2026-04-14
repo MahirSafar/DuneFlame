@@ -25,7 +25,11 @@ public class BasketService(AppDbContext context) : IBasketService
             return new CustomerBasketDto { Id = userId, Items = [] };
         }
 
-        var items = JsonSerializer.Deserialize<List<BasketItemDto>>(basketEntity.Items) ?? [];
+        var options = new JsonSerializerOptions { 
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase 
+        };
+        var items = JsonSerializer.Deserialize<List<BasketItemDto>>(basketEntity.Items, options) ?? [];
         return new CustomerBasketDto { Id = userId, Items = items };
     }
 
@@ -36,7 +40,11 @@ public class BasketService(AppDbContext context) : IBasketService
             throw new ArgumentException("Basket and Basket.Id cannot be null or empty.", nameof(basket));
         }
 
-        var itemsJson = JsonSerializer.Serialize(basket.Items ?? []);
+        var options = new JsonSerializerOptions { 
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase 
+        };
+        var itemsJson = JsonSerializer.Serialize(basket.Items ?? [], options);
         var basketEntity = await _context.CustomerBaskets.FirstOrDefaultAsync(b => b.Id == basket.Id);
 
         if (basketEntity == null)

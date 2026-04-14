@@ -17,39 +17,44 @@ public record ProductResponse(
     string Name,
     string Slug,
     string Description,
-    decimal StockInKg,
     bool IsActive,
     Guid CategoryId,
     string CategoryName,
+    List<ProductTranslationDto> Translations,  // ← ALL available translations
+    ProductCoffeeProfileDto? CoffeeProfile,
+    List<VariantDto> Variants,
+    DateTime CreatedAt,
+    DateTime? UpdatedAt,
+    List<ProductImageDto> Images
+);
+
+public record ProductCoffeeProfileDto(
     Guid? OriginId,
     string? OriginName,
     List<string> RoastLevelNames,
     List<string> GrindTypeNames,
     List<Guid> RoastLevelIds,
     List<Guid> GrindTypeIds,
-    List<ProductTranslationDto> Translations,  // ← ALL available translations
-    List<FlavourNoteDto> FlavourNotes,
-    ProductPriceDto? ActivePrice,  // Single price for current currency
-    List<CurrencyOptionDto> OtherAvailableCurrencies,  // Alternative currencies
-    DateTime CreatedAt,
-    DateTime? UpdatedAt,
-    List<ProductImageDto> Images
+    List<FlavourNoteDto> FlavourNotes
 );
 
-public record ProductPriceDto(
-    Guid ProductPriceId,
-    string WeightLabel,
-    int Grams,
+public record VariantDto(
+    Guid Id,
+    string Sku,
     decimal Price,
-    string CurrencyCode
+    int? StockQuantity,
+    List<VariantOptionDto> Options,
+    List<VariantPriceDto> Prices
 );
 
-public record CurrencyOptionDto(
+public record VariantPriceDto(
     string CurrencyCode,
-    string WeightLabel,
-    int Grams,
-    decimal Price,
-    Guid ProductPriceId
+    decimal Price
+);
+
+public record VariantOptionDto(
+    string AttributeName,
+    string Value
 );
 
 public record ProductImageDto(

@@ -15,7 +15,7 @@ public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileSer
     private const string BucketName = "duneflame-images";
     private readonly string[] _allowedExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
     private readonly string[] _allowedMimeTypes = { "image/jpeg", "image/png", "image/webp" };
-    private const long MaxFileSize = 2 * 1024 * 1024; // 2 MB
+    private const long MaxFileSize = 5 * 1024 * 1024; // 5 MB
 
     /// <summary>
     /// Uploads an image file to Google Cloud Storage and returns the public URL.
@@ -33,7 +33,7 @@ public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileSer
 
             // 2. Validate file size
             if (file.Length > MaxFileSize)
-                throw new ArgumentException("File size exceeds the 2MB limit.");
+                throw new ArgumentException("File size exceeds the 5MB limit.");
 
             // 3. Validate file extension
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();

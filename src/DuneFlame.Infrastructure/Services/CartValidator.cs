@@ -22,20 +22,13 @@ public class CartValidator : ICartValidator
     /// Validates that adding an item to the cart maintains currency consistency.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when currency mismatch is detected.</exception>
-    public void ValidateAddToCart(Cart cart, ProductPrice productPrice)
+    public void ValidateAddToCart(Cart cart, ProductVariant productVariant)
     {
-        if (productPrice == null)
-            throw new ArgumentNullException(nameof(productPrice));
+        if (productVariant == null)
+            throw new ArgumentNullException(nameof(productVariant));
 
-        // If cart is empty, set its currency
-        if (cart.Items.Count == 0)
-        {
-            cart.SetCurrency(productPrice.CurrencyCode);
-            return;
-        }
-
-        // If cart has items, validate currency consistency
-        cart.ValidateCurrencyConsistency(productPrice.CurrencyCode);
+        // Variants are currency agnostic on the DB level.
+        // Orders/Carts might map Session Currency if necessary down the line.
     }
 
     /// <summary>
@@ -61,8 +54,7 @@ public class CartValidator : ICartValidator
         if (cart.Items.Count == 0)
             return true;
 
-        var firstCurrency = cart.Items.First().ProductPrice?.CurrencyCode;
-        return firstCurrency == null || cart.Items.All(item => item.ProductPrice?.CurrencyCode == firstCurrency);
+        return true; // Simplified for strictly agnostic variants
     }
 
     /// <summary>

@@ -4,39 +4,39 @@ namespace DuneFlame.Application.DTOs.Cart;
 
 public class AddToCartRequest
 {
-    [JsonPropertyName("productPriceId")]
-    public Guid ProductPriceId { get; set; }
+    [JsonPropertyName("productVariantId")]
+    public Guid ProductVariantId { get; set; }
 
     [JsonPropertyName("roastLevelId")]
-    public Guid RoastLevelId { get; set; }
+    public Guid? RoastLevelId { get; set; }
 
     [JsonPropertyName("grindTypeId")]
-    public Guid GrindTypeId { get; set; }
+    public Guid? GrindTypeId { get; set; }
 
     public int Quantity { get; set; }
 
     // Alias properties for frontend compatibility - set main properties when alternative names are used
-    [JsonPropertyName("priceId")]
-    public Guid PriceId 
+    [JsonPropertyName("variantId")]
+    public Guid VariantId 
     { 
-        set => ProductPriceId = value; 
+        set => ProductVariantId = value; 
     }
 
     [JsonPropertyName("roastId")]
-    public Guid RoastId 
+    public Guid? RoastId 
     { 
         set => RoastLevelId = value; 
     }
 
     [JsonPropertyName("grindId")]
-    public Guid GrindId 
+    public Guid? GrindId 
     { 
         set => GrindTypeId = value; 
     }
 
-    public AddToCartRequest(Guid productPriceId, Guid roastLevelId, Guid grindTypeId, int quantity)
+    public AddToCartRequest(Guid productVariantId, Guid? roastLevelId, Guid? grindTypeId, int quantity)
     {
-        ProductPriceId = productPriceId;
+        ProductVariantId = productVariantId;
         RoastLevelId = roastLevelId;
         GrindTypeId = grindTypeId;
         Quantity = quantity;

@@ -23,8 +23,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<CategoryTranslation> CategoryTranslations { get; set; }
     public DbSet<Origin> Origins { get; set; }
     public DbSet<ProductImage> ProductImages { get; set; }
-    public DbSet<ProductWeight> ProductWeights { get; set; }
-    public DbSet<ProductPrice> ProductPrices { get; set; }
     public DbSet<RoastLevelEntity> RoastLevels { get; set; }
     public DbSet<GrindType> GrindTypes { get; set; }
     public DbSet<AboutSection> AboutSections { get; set; }
@@ -41,6 +39,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Slider> Sliders { get; set; }
     public DbSet<SliderTranslation> SliderTranslations { get; set; }
     public DbSet<CustomerBasket> CustomerBaskets { get; set; }
+
+    // Phase 1 - Additive Architecture DbSets
+    public DbSet<ProductCoffeeProfile> ProductCoffeeProfiles { get; set; }
+    public DbSet<ProductVariant> ProductVariants { get; set; }
+    public DbSet<ProductVariantPrice> ProductVariantPrices { get; set; }
+    public DbSet<ProductAttribute> ProductAttributes { get; set; }
+    public DbSet<ProductAttributeValue> ProductAttributeValues { get; set; }
+    public DbSet<ProductVariantOption> ProductVariantOptions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -104,6 +110,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasIndex(n => n.Email)
             .IsUnique();
 
+        // ProductVariant Unique Sku
+        modelBuilder.Entity<ProductVariant>()
+            .HasIndex(pv => pv.Sku)
+            .IsUnique();
+
+        // OrderItem -> ProductVariant (Restrict)
+        modelBuilder.Entity<OrderItem>()
+            .HasOne(oi => oi.ProductVariant)
+            .WithMany()
+            .HasForeignKey(oi => oi.ProductVariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // CartItem -> ProductVariant (Restrict)
+        modelBuilder.Entity<CartItem>()
+            .HasOne(ci => ci.ProductVariant)
+            .WithMany()
+            .HasForeignKey(ci => ci.ProductVariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // Product - Category Relationship (1-to-Many)
         modelBuilder.Entity<Product>()
             .HasOne(p => p.Category)
@@ -111,10 +136,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(p => p.CategoryId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Product - Origin Relationship (1-to-Many)
-        modelBuilder.Entity<Product>()
+        // ProductCoffeeProfile - Origin Relationship (1-to-Many)
+        modelBuilder.Entity<ProductCoffeeProfile>()
             .HasOne(p => p.Origin)
-            .WithMany(o => o.Products)
+            .WithMany(o => o.Profiles)
             .HasForeignKey(p => p.OriginId)
             .OnDelete(DeleteBehavior.SetNull);
 
@@ -153,11 +178,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(i => i.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // Product - FlavourNotes Relationship (1-to-Many)
+        // ProductCoffeeProfile - FlavourNotes Relationship (1-to-Many)
         modelBuilder.Entity<FlavourNote>()
-            .HasOne(fn => fn.Product)
+            .HasOne(fn => fn.ProductCoffeeProfile)
             .WithMany(p => p.FlavourNotes)
-            .HasForeignKey(fn => fn.ProductId)
+            .HasForeignKey(fn => fn.ProductCoffeeProfileId)
             .OnDelete(DeleteBehavior.Cascade);
 
         // FlavourNote - Translations Relationship (1-to-Many)
@@ -193,36 +218,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(fn => fn.DisplayOrder)
             .HasDefaultValue(0);
 
-        // Product - Prices Relationship (1-to-Many)
-        modelBuilder.Entity<ProductPrice>()
-            .HasOne(pp => pp.Product)
-            .WithMany(p => p.Prices)
-            .HasForeignKey(pp => pp.ProductId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        // ProductPrice - ProductWeight Relationship (Many-to-1)
-        modelBuilder.Entity<ProductPrice>()
-            .HasOne(pp => pp.Weight)
-            .WithMany(pw => pw.Prices)
-            .HasForeignKey(pp => pp.ProductWeightId)
-            .OnDelete(DeleteBehavior.Restrict);
-
-        // Product - RoastLevel M2M Relationship
-        modelBuilder.Entity<Product>()
+        // Phase 2 - Final Run M2M Configurations for ProductCoffeeProfile
+        modelBuilder.Entity<ProductCoffeeProfile>()
             .HasMany(p => p.RoastLevels)
-            .WithMany(r => r.Products)
-            .UsingEntity(j => j.ToTable("ProductRoastLevels"));
+            .WithMany(r => r.Profiles)
+            .UsingEntity(j => j.ToTable("ProductCoffeeProfileRoastLevels"));
 
-        // Product - GrindType M2M Relationship
-        modelBuilder.Entity<Product>()
+        modelBuilder.Entity<ProductCoffeeProfile>()
             .HasMany(p => p.GrindTypes)
-            .WithMany(g => g.Products)
-            .UsingEntity(j => j.ToTable("ProductGrindTypes"));
-
-        // Product Precision and Configurations
-        modelBuilder.Entity<Product>()
-            .Property(p => p.StockInKg)
-            .HasPrecision(18, 2);
+            .WithMany(g => g.Profiles)
+            .UsingEntity(j => j.ToTable("ProductCoffeeProfileGrindTypes"));
 
         modelBuilder.Entity<Product>()
             .Property(p => p.Slug)
@@ -232,28 +237,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.Entity<Product>()
             .HasIndex(p => p.Slug)
             .IsUnique();
-
-        // ProductPrice Precision and Configuration
-        modelBuilder.Entity<ProductPrice>()
-            .Property(pp => pp.Price)
-            .HasPrecision(18, 2);
-
-        // ProductPrice unique constraint: one price per weight per currency
-        modelBuilder.Entity<ProductPrice>()
-            .HasIndex(pp => new { pp.ProductId, pp.ProductWeightId, pp.CurrencyCode })
-            .IsUnique();
-
-        // ProductPrice CurrencyCode default value
-        modelBuilder.Entity<ProductPrice>()
-            .Property(pp => pp.CurrencyCode)
-            .HasConversion<string>()
-            .HasDefaultValue(Currency.USD);
-
-        // ProductWeight Configurations
-        modelBuilder.Entity<ProductWeight>()
-            .Property(pw => pw.Label)
-            .IsRequired()
-            .HasMaxLength(50);
 
         // RoastLevelEntity Configurations
         modelBuilder.Entity<RoastLevelEntity>()
@@ -266,6 +249,54 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .Property(g => g.Name)
             .IsRequired()
             .HasMaxLength(100);
+
+        // Phase 1 - Additive Architecture Configurations
+        modelBuilder.Entity<ProductCoffeeProfile>()
+            .HasIndex(p => p.ProductId)
+            .IsUnique();
+
+        modelBuilder.Entity<ProductCoffeeProfile>()
+            .HasOne(cp => cp.Product)
+            .WithOne(p => p.CoffeeProfile)
+            .HasForeignKey<ProductCoffeeProfile>(cp => cp.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProductVariant>()
+            .HasIndex(v => v.Sku)
+            .IsUnique();
+
+        modelBuilder.Entity<ProductVariantPrice>()
+            .Property(p => p.Price)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<ProductVariantPrice>()
+            .HasOne(pv => pv.ProductVariant)
+            .WithMany(v => v.Prices)
+            .HasForeignKey(pv => pv.ProductVariantId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProductVariantPrice>()
+            .Property(p => p.Currency)
+            .HasConversion<string>();
+
+        // ProductVariant - Options Relationship
+        modelBuilder.Entity<ProductVariant>()
+            .HasMany(pv => pv.Options)
+            .WithOne(o => o.ProductVariant)
+            .HasForeignKey(o => o.ProductVariantId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProductVariantOption>()
+            .HasOne(o => o.ProductAttributeValue)
+            .WithMany()
+            .HasForeignKey(o => o.ProductAttributeValueId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ProductAttribute>()
+            .HasMany(pa => pa.Values)
+            .WithOne(v => v.ProductAttribute)
+            .HasForeignKey(v => v.ProductAttributeId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Cart Configuration
         modelBuilder.Entity<Cart>()
@@ -287,11 +318,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(ci => ci.CartId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // CartItem - ProductPrice Relationship (Many-to-1)
+        // CartItem - ProductVariant Relationship (Many-to-1)
         modelBuilder.Entity<CartItem>()
-            .HasOne(ci => ci.ProductPrice)
+            .HasOne(ci => ci.ProductVariant)
             .WithMany()
-            .HasForeignKey(ci => ci.ProductPriceId)
+            .HasForeignKey(ci => ci.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // CartItem - RoastLevel Relationship (Many-to-1)
@@ -349,11 +380,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(oi => oi.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // OrderItem - ProductPrice Relationship (Many-to-1)
+        // OrderItem - ProductVariant Relationship (Many-to-1)
         modelBuilder.Entity<OrderItem>()
-            .HasOne(oi => oi.ProductPrice)
+            .HasOne(oi => oi.ProductVariant)
             .WithMany()
-            .HasForeignKey(oi => oi.ProductPriceId)
+            .HasForeignKey(oi => oi.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // OrderItem - UnitPrice Precision
@@ -413,128 +444,128 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .IsRequired(false)
             .HasMaxLength(255);
 
-                // PaymentTransaction Amount Precision
-                modelBuilder.Entity<PaymentTransaction>()
-                    .Property(pt => pt.Amount)
-                    .HasPrecision(18, 2);
+        // PaymentTransaction Amount Precision
+        modelBuilder.Entity<PaymentTransaction>()
+            .Property(pt => pt.Amount)
+            .HasPrecision(18, 2);
 
-                // Country Configuration
-                modelBuilder.Entity<Country>()
-                    .Property(c => c.Name)
-                    .IsRequired()
-                    .HasMaxLength(100);
+        // Country Configuration
+        modelBuilder.Entity<Country>()
+            .Property(c => c.Name)
+            .IsRequired()
+            .HasMaxLength(100);
 
-                modelBuilder.Entity<Country>()
-                    .Property(c => c.Code)
-                    .IsRequired()
-                    .HasMaxLength(2);
+        modelBuilder.Entity<Country>()
+            .Property(c => c.Code)
+            .IsRequired()
+            .HasMaxLength(2);
 
-                // Unique constraint on Country Code (ISO 3166-1 alpha-2)
-                modelBuilder.Entity<Country>()
-                    .HasIndex(c => c.Code)
-                    .IsUnique();
+        // Unique constraint on Country Code (ISO 3166-1 alpha-2)
+        modelBuilder.Entity<Country>()
+            .HasIndex(c => c.Code)
+            .IsUnique();
 
-                // Country - Cities Relationship (1-to-Many)
-                modelBuilder.Entity<Country>()
-                    .HasMany(c => c.Cities)
-                    .WithOne(c => c.Country)
-                    .HasForeignKey(c => c.CountryId)
-                    .OnDelete(DeleteBehavior.Cascade);
+        // Country - Cities Relationship (1-to-Many)
+        modelBuilder.Entity<Country>()
+            .HasMany(c => c.Cities)
+            .WithOne(c => c.Country)
+            .HasForeignKey(c => c.CountryId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-                // Country - ShippingRates Relationship (1-to-Many)
-                modelBuilder.Entity<Country>()
-                    .HasMany(c => c.ShippingRates)
-                    .WithOne(sr => sr.Country)
-                    .HasForeignKey(sr => sr.CountryId)
-                    .OnDelete(DeleteBehavior.Cascade);
+        // Country - ShippingRates Relationship (1-to-Many)
+        modelBuilder.Entity<Country>()
+            .HasMany(c => c.ShippingRates)
+            .WithOne(sr => sr.Country)
+            .HasForeignKey(sr => sr.CountryId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-                // City Configuration
-                modelBuilder.Entity<City>()
-                    .Property(c => c.Name)
-                    .IsRequired()
-                    .HasMaxLength(100);
+        // City Configuration
+        modelBuilder.Entity<City>()
+            .Property(c => c.Name)
+            .IsRequired()
+            .HasMaxLength(100);
 
-                // ShippingRate Configuration
-                modelBuilder.Entity<ShippingRate>()
-                    .Property(sr => sr.Currency)
-                    .HasConversion<string>();
+        // ShippingRate Configuration
+        modelBuilder.Entity<ShippingRate>()
+            .Property(sr => sr.Currency)
+            .HasConversion<string>();
 
-                modelBuilder.Entity<ShippingRate>()
-                    .Property(sr => sr.Cost)
-                    .HasPrecision(18, 2);
+        modelBuilder.Entity<ShippingRate>()
+            .Property(sr => sr.Cost)
+            .HasPrecision(18, 2);
 
-                        // Unique constraint on ShippingRate: (CountryId, Currency) tuple
-                        modelBuilder.Entity<ShippingRate>()
-                            .HasIndex(sr => new { sr.CountryId, sr.Currency })
-                            .IsUnique();
+        // Unique constraint on ShippingRate: (CountryId, Currency) tuple
+        modelBuilder.Entity<ShippingRate>()
+            .HasIndex(sr => new { sr.CountryId, sr.Currency })
+            .IsUnique();
 
-                        // ProductTranslation Configuration
-                        modelBuilder.Entity<ProductTranslation>(entity =>
-                        {
-                            entity.HasKey(pt => pt.Id);
-                            entity.Property(pt => pt.LanguageCode).IsRequired().HasMaxLength(5);
-                            entity.Property(pt => pt.Name).IsRequired().HasMaxLength(500);
-                            entity.Property(pt => pt.Description).IsRequired();
+        // ProductTranslation Configuration
+        modelBuilder.Entity<ProductTranslation>(entity =>
+        {
+            entity.HasKey(pt => pt.Id);
+            entity.Property(pt => pt.LanguageCode).IsRequired().HasMaxLength(5);
+            entity.Property(pt => pt.Name).IsRequired().HasMaxLength(500);
+            entity.Property(pt => pt.Description).IsRequired();
 
-                            entity.HasOne(pt => pt.Product)
-                                .WithMany(p => p.Translations)
-                                .HasForeignKey(pt => pt.ProductId)
-                                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(pt => pt.Product)
+                .WithMany(p => p.Translations)
+                .HasForeignKey(pt => pt.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-                            // Unique constraint: one translation per product per language
-                            entity.HasIndex(pt => new { pt.ProductId, pt.LanguageCode })
-                                .IsUnique();
-                        });
+            // Unique constraint: one translation per product per language
+            entity.HasIndex(pt => new { pt.ProductId, pt.LanguageCode })
+                .IsUnique();
+        });
 
-                                // CategoryTranslation Configuration
-                                modelBuilder.Entity<CategoryTranslation>(entity =>
-                                {
-                                    entity.HasKey(ct => ct.Id);
-                                    entity.Property(ct => ct.LanguageCode).IsRequired().HasMaxLength(5);
-                                    entity.Property(ct => ct.Name).IsRequired().HasMaxLength(500);
+        // CategoryTranslation Configuration
+        modelBuilder.Entity<CategoryTranslation>(entity =>
+        {
+            entity.HasKey(ct => ct.Id);
+            entity.Property(ct => ct.LanguageCode).IsRequired().HasMaxLength(5);
+            entity.Property(ct => ct.Name).IsRequired().HasMaxLength(500);
 
-                                    entity.HasOne(ct => ct.Category)
-                                        .WithMany(c => c.Translations)
-                                        .HasForeignKey(ct => ct.CategoryId)
-                                        .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(ct => ct.Category)
+                .WithMany(c => c.Translations)
+                .HasForeignKey(ct => ct.CategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-                                                        // Unique constraint: one translation per category per language
-                                                        entity.HasIndex(ct => new { ct.CategoryId, ct.LanguageCode })
-                                                            .IsUnique();
-                                                    });
+            // Unique constraint: one translation per category per language
+            entity.HasIndex(ct => new { ct.CategoryId, ct.LanguageCode })
+                                        .IsUnique();
+        });
 
-                                                    // Slider Configuration
-                                                    modelBuilder.Entity<AboutSection>(entity =>
-                                                    {
-                                                    });
+        // Slider Configuration
+        modelBuilder.Entity<AboutSection>(entity =>
+        {
+        });
 
-                                                    // Slider - SliderTranslation Relationship (1-to-Many)
-                                                    modelBuilder.Entity<Slider>()
-                                                        .HasMany(s => s.Translations)
-                                                        .WithOne(st => st.Slider)
-                                                        .HasForeignKey(st => st.SliderId)
-                                                        .OnDelete(DeleteBehavior.Cascade);
+        // Slider - SliderTranslation Relationship (1-to-Many)
+        modelBuilder.Entity<Slider>()
+            .HasMany(s => s.Translations)
+            .WithOne(st => st.Slider)
+            .HasForeignKey(st => st.SliderId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-                                                    // SliderTranslation Configuration
-                                                    modelBuilder.Entity<SliderTranslation>(entity =>
-                                                    {
-                                                        entity.HasKey(st => st.Id);
-                                                        entity.Property(st => st.LanguageCode).IsRequired().HasMaxLength(5);
-                                                        entity.Property(st => st.Title).IsRequired().HasMaxLength(500);
-                                                        entity.Property(st => st.Subtitle).HasMaxLength(1000);
-                                                        entity.Property(st => st.ButtonText).HasMaxLength(100);
+        // SliderTranslation Configuration
+        modelBuilder.Entity<SliderTranslation>(entity =>
+        {
+            entity.HasKey(st => st.Id);
+            entity.Property(st => st.LanguageCode).IsRequired().HasMaxLength(5);
+            entity.Property(st => st.Title).IsRequired().HasMaxLength(500);
+            entity.Property(st => st.Subtitle).HasMaxLength(1000);
+            entity.Property(st => st.ButtonText).HasMaxLength(100);
 
-                                                        // Unique constraint: one translation per slider per language
-                                                        entity.HasIndex(st => new { st.SliderId, st.LanguageCode })
-                                                            .IsUnique();
-                                                    });
+            // Unique constraint: one translation per slider per language
+            entity.HasIndex(st => new { st.SliderId, st.LanguageCode })
+                .IsUnique();
+        });
 
-                                                    // Slider Configuration - Properties
-                                                    modelBuilder.Entity<Slider>(entity =>
-                                                    {
-                                                        entity.Property(s => s.ImageUrl).IsRequired();
-                                                        entity.Property(s => s.Order).HasDefaultValue(0);
-                                                        entity.Property(s => s.IsActive).HasDefaultValue(true);
-                                                    });
-                                                }
-                                            }
+        // Slider Configuration - Properties
+        modelBuilder.Entity<Slider>(entity =>
+        {
+            entity.Property(s => s.ImageUrl).IsRequired();
+            entity.Property(s => s.Order).HasDefaultValue(0);
+            entity.Property(s => s.IsActive).HasDefaultValue(true);
+        });
+    }
+}

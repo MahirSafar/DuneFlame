@@ -3,6 +3,7 @@ using System;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DuneFlame.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260408125209_AddVariantEngine")]
+    partial class AddVariantEngine
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -959,7 +962,8 @@ namespace DuneFlame.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("Price")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
@@ -1009,36 +1013,6 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.HasIndex("ProductVariantId");
 
                     b.ToTable("ProductVariantOptions");
-                });
-
-            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductVariantPrice", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("Price")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<Guid>("ProductVariantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductVariantId");
-
-                    b.ToTable("ProductVariantPrices");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RefreshToken", b =>
@@ -1709,17 +1683,6 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("ProductVariant");
                 });
 
-            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductVariantPrice", b =>
-                {
-                    b.HasOne("DuneFlame.Domain.Entities.ProductVariant", "ProductVariant")
-                        .WithMany("Prices")
-                        .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ProductVariant");
-                });
-
             modelBuilder.Entity("DuneFlame.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.ApplicationUser", "User")
@@ -1942,8 +1905,6 @@ namespace DuneFlame.Infrastructure.Migrations
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductVariant", b =>
                 {
                     b.Navigation("Options");
-
-                    b.Navigation("Prices");
                 });
 
             modelBuilder.Entity("DuneFlame.Domain.Entities.RewardWallet", b =>

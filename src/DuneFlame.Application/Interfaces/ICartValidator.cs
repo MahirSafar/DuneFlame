@@ -10,7 +10,7 @@ public interface ICartValidator
     /// <summary>
     /// Validates that adding an item to the cart maintains currency consistency.
     /// </summary>
-    void ValidateAddToCart(Cart cart, ProductPrice productPrice);
+    void ValidateAddToCart(Cart cart, ProductVariant productVariant);
 
     /// <summary>
     /// Validates that cart currency matches the current request currency.

@@ -3,15 +3,15 @@ namespace DuneFlame.Application.DTOs.Cart;
 public record CartItemDto(
     Guid Id,
     Guid ProductId,
-    Guid ProductPriceId,
+    Guid ProductVariantId,
     string ProductName,
     decimal Price,
     int Quantity,
     string? ImageUrl,
-    string WeightLabel,
-    int Grams,
-    string RoastLevelName,
-    string GrindTypeName,
-    Guid RoastLevelId,
-    Guid GrindTypeId
+    string Sku,
+    List<string> Attributes, // e.g. "Weight: 250g", "Color: Black"
+    string? RoastLevelName,
+    string? GrindTypeName,
+    Guid? RoastLevelId,
+    Guid? GrindTypeId
 );

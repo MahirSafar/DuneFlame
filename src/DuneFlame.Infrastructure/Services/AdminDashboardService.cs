@@ -62,9 +62,9 @@ public class AdminDashboardService(
             // 7. Count Total Products
             var totalProducts = await _context.Products.CountAsync();
 
-            // 8. Count Low Stock Products (StockInKg < 5.0)
+            // 8. Count Low Stock Products (StockQuantity < 5 for any variant)
             var lowStockCount = await _context.Products
-                .Where(p => p.StockInKg < 5.0m)
+                .Where(p => p.Variants.Any(v => v.StockQuantity < 5))
                 .CountAsync();
 
             // 9. Get Recent Activities (latest 5 orders + latest 5 products)

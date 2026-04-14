@@ -5,8 +5,9 @@ namespace DuneFlame.Application.DTOs.Basket;
 public class UpsellRecommendationDto
 {
     public Guid ProductId { get; set; }
-    public Guid ProductPriceId { get; set; }
+    public Guid ProductVariantId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
     public string? ImageUrl { get; set; }
     public decimal Price { get; set; }
     public string CurrencyCode { get; set; } = string.Empty;

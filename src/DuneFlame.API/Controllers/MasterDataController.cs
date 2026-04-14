@@ -9,8 +9,7 @@ namespace DuneFlame.API.Controllers;
 
 /// <summary>
 /// Master Data Controller - Exposes reference data for UI forms and dropdowns.
-/// This includes product weights, roast levels, grind types, categories, and origins.
-/// Data is cached for performance as it changes infrequently.
+/// This includes product attributes, roast levels, grind types, categories, and origins.
 /// </summary>
 [Route("api/v1/master-data")]
 [ApiController]
@@ -21,22 +20,26 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     private readonly ILogger<MasterDataController> _logger = logger;
 
     /// <summary>
-    /// Get all available product weights for weight selection in product forms.
+    /// Get all available product attributes (e.g. Weight, Color).
     /// </summary>
-    /// <returns>List of weights (Id, Label, Grams)</returns>
-    [HttpGet("weights")]
+    [HttpGet("attributes")]
     [ResponseCache(Duration = 3600)] // Cache for 1 hour
-    public async Task<ActionResult<List<ProductWeightDto>>> GetWeights()
+    public async Task<ActionResult<List<ProductAttributeDto>>> GetAttributes()
     {
         try
         {
-            var weights = await _context.ProductWeights
+            var attributes = await _context.ProductAttributes
                 .AsNoTracking()
-                .OrderBy(w => w.Grams)
-                .Select(w => new ProductWeightDto(w.Id, w.Label, w.Grams))
+                .Include(a => a.Values)
+                .OrderBy(a => a.Name)
+                .Select(a => new ProductAttributeDto(
+                    a.Id, 
+                    a.Name,
+                    a.Values.Select(v => new ProductAttributeValueDto(v.Id, v.Value)).ToList()
+                ))
                 .ToListAsync();
 
-            return Ok(weights);
+            return Ok(attributes);
         }
         catch (Exception ex)
         {
@@ -116,7 +119,8 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name 
                 ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
                 ?? "Unknown",
-                c.Slug))
+                c.Slug,
+                c.IsCoffeeCategory))
                 .ToList();
 
             return Ok(categoryDtos);
@@ -162,10 +166,15 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
             // Sadələşdirmə: 'ar-SA' gəlsə də, 'ar' götürürük. Yoxdursa 'en'.
             var lang = !string.IsNullOrWhiteSpace(header) && header.StartsWith("ar") ? "ar" : "en";
 
-            var weights = await _context.ProductWeights
+            var attributes = await _context.ProductAttributes
                 .AsNoTracking()
-                .OrderBy(w => w.Grams)
-                .Select(w => new ProductWeightDto(w.Id, w.Label, w.Grams))
+                .Include(a => a.Values)
+                .OrderBy(a => a.Name)
+                .Select(a => new ProductAttributeDto(
+                    a.Id, 
+                    a.Name,
+                    a.Values.Select(v => new ProductAttributeValueDto(v.Id, v.Value)).ToList()
+                ))
                 .ToListAsync();
 
             var roastLevels = await _context.RoastLevels
@@ -193,7 +202,8 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name 
                 ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
                 ?? "Unknown",
-                c.Slug))
+                c.Slug,
+                c.IsCoffeeCategory))
                 .ToList();
 
             var origins = await _context.Origins
@@ -203,8 +213,8 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 .ToListAsync();
 
             var masterData = new MasterDataCollectionDto(
-                                Weights: weights,
-                                RoastLevels: roastLevels,
+                Attributes: attributes,
+                RoastLevels: roastLevels,
                                 GrindTypes: grindTypes,
                                 Categories: categoryDtos,
                                 Origins: origins
@@ -221,9 +231,14 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 }
 
 /// <summary>
-/// DTO for ProductWeight master data
+/// DTO for ProductAttributeValue master data
 /// </summary>
-public record ProductWeightDto(Guid Id, string Label, int Grams);
+public record ProductAttributeValueDto(Guid Id, string Value);
+
+/// <summary>
+/// DTO for ProductAttribute master data
+/// </summary>
+public record ProductAttributeDto(Guid Id, string Name, List<ProductAttributeValueDto> Values);
 
 /// <summary>
 /// DTO for RoastLevel master data
@@ -238,7 +253,7 @@ public record GrindTypeDto(Guid Id, string Name);
 /// <summary>
 /// DTO for Category master data
 /// </summary>
-public record CategoryDto(Guid Id, string Name, string Slug);
+public record CategoryDto(Guid Id, string Name, string Slug, bool IsCoffeeCategory);
 
 /// <summary>
 /// DTO for Origin master data
@@ -249,7 +264,7 @@ public record OriginDto(Guid Id, string Name);
 /// Combined DTO for all master data - used by /api/v1/master-data/all endpoint
 /// </summary>
 public record MasterDataCollectionDto(
-    List<ProductWeightDto> Weights,
+    List<ProductAttributeDto> Attributes,
     List<RoastLevelDto> RoastLevels,
     List<GrindTypeDto> GrindTypes,
     List<CategoryDto> Categories,

@@ -18,18 +18,18 @@ namespace DuneFlame.Application.DTOs.Product;
 public record CreateProductRequest(
     string Name,
     string Description,
-    decimal StockInKg,
     Guid CategoryId,
     Guid? OriginId,
     List<Guid> RoastLevelIds,
     List<Guid> GrindTypeIds,
     List<FlavourNoteCreateDto> FlavourNotes,
-    List<ProductPriceCreateDto> Prices,
+    List<VariantCreateDto> Variants,
     List<IFormFile>? Images,
     List<ProductTranslationCreateDto>? Translations = null
 );
 
 public record FlavourNoteCreateDto(
+    Guid? Id,
     string Name,
     int DisplayOrder = 0,
     List<FlavourNoteTranslationCreateDto>? Translations = null
@@ -40,11 +40,20 @@ public record FlavourNoteTranslationCreateDto(
     string Name
 );
 
-public record ProductPriceCreateDto(
-    Guid? Id,
-    Guid ProductWeightId,
-    decimal Price,
-    string CurrencyCode = "USD"
+public record VariantPriceCreateDto(
+    string CurrencyCode,
+    decimal Price
+);
+
+public record VariantCreateDto(
+    string Sku,
+    int StockQuantity,
+    List<VariantOptionCreateDto> Options,
+    List<VariantPriceCreateDto>? Prices = null
+);
+
+public record VariantOptionCreateDto(
+    Guid ProductAttributeValueId
 );
 
 public record ProductTranslationCreateDto(

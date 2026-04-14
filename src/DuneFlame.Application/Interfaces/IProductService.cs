@@ -35,9 +35,6 @@ public interface IProductService
         Guid[]? roastLevelIds = null,
         Guid[]? originIds = null);
 
-    // Update
-    Task UpdateAsync(Guid id, UpdateProductRequest request);
-
     // Delete
     Task DeleteAsync(Guid id);
 

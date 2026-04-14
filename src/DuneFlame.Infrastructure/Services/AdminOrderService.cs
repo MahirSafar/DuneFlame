@@ -265,38 +265,28 @@ public class AdminOrderService(
                     }
                 }
 
-                // 2B: Restock Inventory via native SQL
-                // Need to fetch weight info for each ProductPrice to calculate kg to return
+                // 2B: Restock Inventory
                 foreach (var item in order.Items)
                 {
                     try
                     {
-                        // Get ProductPrice with Weight info
-                        var productPrice = await _context.ProductPrices
-                            .Include(pp => pp.Weight)
-                            .FirstOrDefaultAsync(pp => pp.Id == item.ProductPriceId);
+                        var productVariant = await _context.ProductVariants
+                            .FirstOrDefaultAsync(pv => pv.Id == item.ProductVariantId);
 
-                        if (productPrice != null && productPrice.Weight != null)
+                        if (productVariant != null)
                         {
-                            // Calculate kg to add back: Quantity * (WeightGrams / 1000)
-                            decimal kgToAddBack = item.Quantity * (productPrice.Weight.Grams / 1000m);
+                            // Add back specific stock quantity based on variant track
+                            productVariant.StockQuantity += item.Quantity;
+                            _context.ProductVariants.Update(productVariant);
+                            await _context.SaveChangesAsync();
 
-                            // Get the product to update stock
-                            var product = await _context.Products.FindAsync(productPrice.ProductId);
-                            if (product != null)
-                            {
-                                product.StockInKg += kgToAddBack;
-                                _context.Products.Update(product);
-                                await _context.SaveChangesAsync();
-
-                                _logger.LogInformation("Restocked {KgAmount}kg of Product {ProductPriceId}", 
-                                    kgToAddBack, item.ProductPriceId);
-                            }
+                            _logger.LogInformation("Restocked {Quantity} of ProductVariant {ProductVariantId}", 
+                                item.Quantity, item.ProductVariantId);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to restock inventory for ProductPrice {ProductPriceId}", item.ProductPriceId);
+                        _logger.LogError(ex, "Failed to restock inventory for ProductVariant {ProductVariantId}", item.ProductVariantId);
                         throw;
                     }
                 }
@@ -386,11 +376,13 @@ public class AdminOrderService(
      {
          var orderItems = order.Items.Select(oi => new OrderItemDto(
              oi.Id,
-             oi.ProductPriceId,
+             oi.ProductVariantId,
              oi.ProductName,
              oi.UnitPrice,
              oi.Quantity
          )).ToList();
+
+         var targetCurrency = order.CurrencyCode;
 
          // Extract customer details with null safety
          var customerName = order.ApplicationUser != null

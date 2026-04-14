@@ -5,6 +5,7 @@ namespace DuneFlame.Domain.Entities;
 public class Category : BaseEntity
 {
     public string Slug { get; set; } = string.Empty; // URL üçün (meselen: "qehve-deneleri")
+    public bool IsCoffeeCategory { get; set; } = false;
 
     // Relationships
     public ICollection<Product> Products { get; set; } = new List<Product>();

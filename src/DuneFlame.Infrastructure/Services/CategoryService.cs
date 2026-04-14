@@ -32,7 +32,8 @@ public class CategoryService(
 
         var category = new Category
         {
-            Slug = request.Slug
+            Slug = request.Slug,
+            IsCoffeeCategory = request.IsCoffeeCategory
         };
 
         // Add default English translation
@@ -129,6 +130,7 @@ public class CategoryService(
         }
 
         category.Slug = request.Slug;
+        category.IsCoffeeCategory = request.IsCoffeeCategory;
         category.UpdatedAt = DateTime.UtcNow;
 
         _context.Categories.Update(category);
@@ -174,7 +176,8 @@ public class CategoryService(
             Slug: category.Slug,
             ProductCount: category.Products.Count,
             CreatedAt: category.CreatedAt,
-            UpdatedAt: category.UpdatedAt
+            UpdatedAt: category.UpdatedAt,
+            IsCoffeeCategory: category.IsCoffeeCategory
         );
     }
 }

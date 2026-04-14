@@ -18,7 +18,8 @@ public interface ICategoryService
 
 public record CreateCategoryRequest(
     string Name,
-    string Slug
+    string Slug,
+    bool IsCoffeeCategory
 );
 
 public record CategoryResponse(
@@ -27,5 +28,6 @@ public record CategoryResponse(
     string Slug,
     int ProductCount,
     DateTime CreatedAt,
-    DateTime? UpdatedAt
+    DateTime? UpdatedAt,
+    bool IsCoffeeCategory
 );

@@ -5,6 +5,8 @@ using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Configuration;
 using DuneFlame.Infrastructure.Persistence;
+using DuneFlame.Infrastructure.Products.Commands.UpdateProduct;
+using DuneFlame.Infrastructure.Products.Commands.UpdateProduct.Strategies;
 using DuneFlame.Infrastructure.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -128,6 +130,12 @@ builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
 builder.Services.AddScoped<IShippingService, ShippingService>();
 builder.Services.AddScoped<ISliderService, SliderService>();
 
+// Strategies and CQRS Handlers
+builder.Services.AddMediatR(config => {
+    config.RegisterServicesFromAssembly(typeof(UpdateProductCommandHandler).Assembly);
+});
+builder.Services.AddScoped<IProductUpdateStrategy, CoffeeProductUpdateStrategy>();
+
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 
 // --- 6. AUTHENTICATION & CORS ---
@@ -201,7 +209,14 @@ builder.Services.AddHealthChecks()
 // ==========================================
 var app = builder.Build();
 
-// Database Seeding
+// 1. ƏVVƏLCƏ BAZANI YENİLƏ (AUTO MIGRATION)
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    dbContext.Database.Migrate();
+}
+
+// 2. SONRA İLKİN DATALARI YAZ (SEEDING)
 if (!app.Environment.IsEnvironment("Testing"))
 {
     try

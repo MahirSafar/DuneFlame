@@ -1,9 +1,17 @@
 using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
 using DuneFlame.Application.Interfaces;
+using DuneFlame.Application.Products.Commands.UpdateProduct;
 using FluentValidation;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace DuneFlame.API.Controllers;
 
@@ -11,13 +19,15 @@ namespace DuneFlame.API.Controllers;
 [ApiController]
 [Authorize(Roles = "Admin")]
 public class AdminProductController(
+    IMediator mediator,
     IProductService productService,
     IValidator<CreateProductRequest> createProductValidator,
-    IValidator<UpdateProductRequest> updateProductValidator) : ControllerBase
+    ILogger<AdminProductController> logger) : ControllerBase
 {
+    private readonly IMediator _mediator = mediator;
     private readonly IProductService _productService = productService;
     private readonly IValidator<CreateProductRequest> _createProductValidator = createProductValidator;
-    private readonly IValidator<UpdateProductRequest> _updateProductValidator = updateProductValidator;
+    private readonly ILogger<AdminProductController> _logger = logger;
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<ProductResponse>>> GetAllProducts(
@@ -67,16 +77,36 @@ public class AdminProductController(
     }
 
     [HttpPut("{id:guid}")]
-    public async Task<IActionResult> UpdateProduct(Guid id, [FromForm] UpdateProductRequest request)
+    public async Task<IActionResult> UpdateProduct(
+        Guid id, 
+        [FromForm] UpdateProductCommand command, 
+        [FromServices] IValidator<UpdateProductCommand> validator)
     {
-        var validationResult = await _updateProductValidator.ValidateAsync(request);
+        if (id != command.Id)
+            return BadRequest(new { message = "ID in route does not match ID in command." });
+
+        var validationResult = await validator.ValidateAsync(command);
         if (!validationResult.IsValid)
             return BadRequest(validationResult.Errors);
 
         try
         {
-            await _productService.UpdateAsync(id, request);
+            await _mediator.Send(command);
             return Ok(new { message = "Product updated successfully." });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            if (ex.Entries.Any())
+            {
+                var entry = ex.Entries.Single();
+                _logger.LogError("CONCURRENCY CRASH! Table: {Table}. Entry ID: {Id}", 
+                    entry.Metadata.Name, entry.Property("Id").CurrentValue);
+            }
+            else
+            {
+                _logger.LogError("CONCURRENCY CRASH! No entries available in the exception.");
+            }
+            throw; // Re-throw to see the full stack trace
         }
         catch (KeyNotFoundException ex)
         {

@@ -64,7 +64,7 @@ public static class DbInitializer
             logger.LogInformation("✓ Test Orders: Demo orders created with multi-currency support (USD, AED)");
             logger.LogInformation("✓ Shipping System: Countries, cities, and rates seeded for database-driven shipping");
             logger.LogInformation("✓ HybridCache: First product load will warm L1 (memory) and L2 (Redis) caches");
-            }
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "An error occurred while initializing the database.");
@@ -106,26 +106,6 @@ public static class DbInitializer
             if (result.Succeeded)
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
-            }
-        }
-
-        // Demo customer user
-        var demoEmail = "demo@duneflame.com";
-        if (await userManager.FindByEmailAsync(demoEmail) == null)
-        {
-            var demoUser = new ApplicationUser
-            {
-                UserName = demoEmail,
-                Email = demoEmail,
-                FirstName = "John",
-                LastName = "Doe",
-                EmailConfirmed = true
-            };
-
-            var result = await userManager.CreateAsync(demoUser, "Customer123!");
-            if (result.Succeeded)
-            {
-                await userManager.AddToRoleAsync(demoUser, "Customer");
             }
         }
     }
@@ -228,417 +208,295 @@ public static class DbInitializer
 
     private static async Task SeedProductsAsync(AppDbContext context, ILogger<AppDbContext> logger)
     {
-        // Check if weights already seeded (idempotent)
-        if (await context.ProductWeights.AnyAsync())
+        if (await context.Products.AnyAsync())
         {
-            logger.LogInformation("Products already seeded. Skipping...");
             return;
         }
 
-        logger.LogInformation("Seeding ProductWeights, RoastLevels, GrindTypes, and Products for Silo v2...");
+        logger.LogInformation("Seeding Products with Variant Architecture...");
 
-        // 1. Seed ProductWeights (Master Data)
-        var weights = new List<ProductWeight>
-        {
-            new() { Label = "250g", Grams = 250 },
-            new() { Label = "1kg", Grams = 1000 }
-        };
-        await context.ProductWeights.AddRangeAsync(weights);
+        // Ensure Prerequisite Data Exists
+        var coffeeBeansCategory = await context.Categories.FirstOrDefaultAsync(c => c.Slug == "coffee-beans");
+        if (coffeeBeansCategory == null) return;
+
+        var brazilOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Brazil");
+        var ethiopiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Ethiopia");
+        var colombiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Colombia");
+        var malaysiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Malaysia");
+
+        var mediumRoast = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Medium");
+        if (mediumRoast == null) { mediumRoast = new RoastLevelEntity { Name = "Medium" }; context.Add(mediumRoast); }
+
+        var lightRoast = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Light");
+        if (lightRoast == null) { lightRoast = new RoastLevelEntity { Name = "Light" }; context.Add(lightRoast); }
+
+        var wholeBean = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Whole Bean");
+        if (wholeBean == null) { wholeBean = new GrindType { Name = "Whole Bean" }; context.Add(wholeBean); }
+
+        var weightAttribute = new ProductAttribute { Id = Guid.NewGuid(), Name = "Weight" };
+        var weight250g = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = weightAttribute.Id, Value = "250g" };
+        var weight1kg = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = weightAttribute.Id, Value = "1kg" };
+
+        context.ProductAttributes.Add(weightAttribute);
+        context.ProductAttributeValues.AddRange(weight250g, weight1kg);
+
         await context.SaveChangesAsync();
 
-        // Reload to get IDs
-        var weight250g = await context.ProductWeights.FirstOrDefaultAsync(w => w.Grams == 250);
-        var weight1kg = await context.ProductWeights.FirstOrDefaultAsync(w => w.Grams == 1000);
-
-        // 2. Seed RoastLevels (Master Data)
-        var roastLevels = new List<RoastLevelEntity>
+        var products = new List<Product>
         {
-            new() { Name = "Light" },
-            new() { Name = "Medium" },
-            new() { Name = "Dark" }
-        };
-        await context.RoastLevels.AddRangeAsync(roastLevels);
-        await context.SaveChangesAsync();
-
-        // Reload to get IDs
-        var roastLight = await context.RoastLevels.FirstOrDefaultAsync(r => r.Name == "Light");
-        var roastMedium = await context.RoastLevels.FirstOrDefaultAsync(r => r.Name == "Medium");
-        var roastDark = await context.RoastLevels.FirstOrDefaultAsync(r => r.Name == "Dark");
-
-        // 3. Seed GrindTypes (Master Data)
-        var grindTypes = new List<GrindType>
-        {
-            new() { Name = "Whole Bean" },
-            new() { Name = "Espresso" },
-            new() { Name = "Filter" },
-            new() { Name = "French Press" }
-        };
-        await context.GrindTypes.AddRangeAsync(grindTypes);
-        await context.SaveChangesAsync();
-
-        // Reload to get IDs
-        var grindWholeBean = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "Whole Bean");
-        var grindEspresso = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "Espresso");
-        var grindFilter = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "Filter");
-        var grindFrenchPress = await context.GrindTypes.FirstOrDefaultAsync(g => g.Name == "French Press");
-
-        // 4. Get categories and origins
-        var categories = await context.Categories.ToListAsync();
-        var origins = await context.Origins.ToListAsync();
-
-        if (categories.Count == 0 || origins.Count == 0)
-        {
-            logger.LogWarning("Categories or Origins not found. Skipping product seeding.");
-            return;
-        }
-
-        var coffeeBeansCategory = categories.FirstOrDefault(c => c.Slug == "coffee-beans");
-        var ethiopiaOrigin = origins.FirstOrDefault(o => o.Name == "Ethiopia");
-        var colombiaOrigin = origins.FirstOrDefault(o => o.Name == "Colombia");
-        var brazilOrigin = origins.FirstOrDefault(o => o.Name == "Brazil");
-        var malaysiaOrigin = origins.FirstOrDefault(o => o.Name == "Malaysia");
-
-        if (coffeeBeansCategory == null || ethiopiaOrigin == null)
-        {
-            logger.LogWarning("Coffee Beans category or required origins not found.");
-            return;
-        }
-
-        var products = new List<Product>();
-
-        // 5. Create Premium Products with Bilingual Translations
-        // Product 1: Brazil Lencois (BLRB)
-        if (brazilOrigin != null)
-        {
-            var brazilLencoesProduct = new Product
+            // 1. Brazil Lençóis
+            new Product
             {
-                Slug = "brazil-lencois",
-                StockInKg = 50.0m,
-                IsActive = true,
+                Id = Guid.Parse("b8e278d7-0f7a-442f-bb10-8dc8d91a175c"),
                 CategoryId = coffeeBeansCategory.Id,
-                OriginId = brazilOrigin.Id,
+                Slug = "brazil-lenis",
+                IsActive = true,
+                CreatedAt = DateTime.Parse("2026-03-13T17:52:38.791374Z").ToUniversalTime(),
                 Translations = new List<ProductTranslation>
                 {
-                    new()
+                    new ProductTranslation
                     {
                         LanguageCode = "en",
-                        Name = "Brazil Lencois",
-                        Description = "Premium Brazilian Lencois Santos Dahab with Red Catuai variety. Naturally processed at 1300m altitude with a cupping score of 86. Perfect for both espresso and filter brewing."
+                        Name = "Brazil Lençóis",
+                        Description = "Brazil Lençóis is a smooth and well-balanced coffee grown in the rich soils of Brazil. It offers a naturally sweet profile with notes of chocolate, roasted nuts, and a hint of caramel. The medium body and low acidity make it an easy and enjoyable cup, perfect for both espresso and filter brewing. This coffee delivers a warm, comforting flavor with a clean finish."
                     },
-                    new()
+                    new ProductTranslation
                     {
                         LanguageCode = "ar",
-                        Name = "البرازيل لينكوس",
-                        Description = "برازيل لينكوس سانتوس دهب ممتاز مع صنف الكاتواي الأحمر. معالج بشكل طبيعي على ارتفاع 1300 متر بدرجة تذوق 86. مثالي للإسبريسو والقهوة المفلترة."
+                        Name = "البرازيل لينسويس",
+                        Description = "قهوة البرازيل لينسويس هي قهوة ناعمة ومتوازنة تُزرع في تربة البرازيل الغنية. تتميز بطعم طبيعي حلو مع نكهات الشوكولاتة والمكسرات المحمصة ولمسة خفيفة من الكراميل. قوامها متوسط وحموضتها منخفضة، مما يجعلها كوبًا سهل الشرب ومناسبًا لتحضير الإسبريسو أو القهوة المفلترة. تقدم هذه القهوة مذاقًا دافئًا ومريحًا مع نهاية نظيفة وممتعة"
                     }
                 },
-                FlavourNotes = new List<FlavourNote>
+                CoffeeProfile = new ProductCoffeeProfile
                 {
-                    new()
+                    OriginId = brazilOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { wholeBean },
+                    FlavourNotes = new List<FlavourNote>
                     {
-                        Name = "Chocolate",
-                        DisplayOrder = 1,
-                        Translations = new List<FlavourNoteTranslation>
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Chocolate" },
-                            new() { LanguageCode = "ar", Name = "شوكولاتة" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Walnut",
-                        DisplayOrder = 2,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 1,
+                            Name = "Chocolate",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Chocolate" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Walnut" },
-                            new() { LanguageCode = "ar", Name = "جوز" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Cookies",
-                        DisplayOrder = 3,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 2,
+                            Name = "Walnut",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Walnut" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Cookies" },
-                            new() { LanguageCode = "ar", Name = "البسكويت" }
+                            DisplayOrder = 3,
+                            Name = "Cookies",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Cookies" } }
                         }
                     }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "brazil-lenis-250g", Price = 56.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 56.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 15.25m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "brazil-lenis-1kg", Price = 188.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 188.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 51.18m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                },
+                Images = new List<ProductImage>
+                {
+                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/a3e09dc0-1ec5-4ad3-8cff-d38eed9676ae_Brazil Lençois.jpg.jpeg", IsMain = true }
                 }
-            };
-            if (roastMedium != null) brazilLencoesProduct.RoastLevels.Add(roastMedium);
-            if (grindEspresso != null) brazilLencoesProduct.GrindTypes.Add(grindEspresso);
-            if (grindFilter != null) brazilLencoesProduct.GrindTypes.Add(grindFilter);
-            products.Add(brazilLencoesProduct);
-        }
-
-        // Product 2: Ethiopia Guji Hamebla (EGHRB)
-        if (ethiopiaOrigin != null)
-        {
-            var ethiopiaGujiProduct = new Product
+            },
+            // 2. Ethiopia Guji Hambela
+            new Product
             {
-                Slug = "ethiopia-guji-hamebla",
-                StockInKg = 40.0m,
-                IsActive = true,
+                Id = Guid.Parse("c3ce8096-22ca-4fc5-88c2-4dc4ecdda191"),
                 CategoryId = coffeeBeansCategory.Id,
-                OriginId = ethiopiaOrigin.Id,
+                Slug = "ethiopia-guji-hambela",
+                IsActive = true,
+                CreatedAt = DateTime.Parse("2026-03-13T17:59:43.207652Z").ToUniversalTime(),
                 Translations = new List<ProductTranslation>
                 {
-                    new()
+                    new ProductTranslation
                     {
                         LanguageCode = "en",
-                        Name = "Ethiopia Guji Hamebla",
-                        Description = "Exceptional Ethiopian Heirloom variety from Guji Hamebla. Washed process at 1700-1800m altitude with impressive cupping score of 87.25. Complex floral and fruity notes with delicate peach undertones."
+                        Name = "Ethiopia Guji Hambela",
+                        Description = "Ethiopia Guji Hamebla is a vibrant and aromatic specialty coffee grown in the highlands of the Guji region. This coffee is known for its elegant floral character and bright sweetness. It offers delicate notes of jasmine and bergamot, complemented by soft floral tones and a juicy hint of peach. The cup is clean, complex, and beautifully balanced with a silky body and a refreshing finish."
                     },
-                    new()
+                    new ProductTranslation
                     {
                         LanguageCode = "ar",
-                        Name = "إثيوبيا جوجي حمبلا",
-                        Description = "صنف الحبشي الاستثنائي من جوجي حمبلا. عملية مغسولة على ارتفاع 1700-1800 متر برصيد تذوق 87.25 مثير للإعجاب. نكهات زهرية وفاكهية معقدة مع لمسات خوخ دقيقة."
+                        Name = "إثيوبيا غوجي هامبيلا",
+                        Description = "قهوة إثيوبيا غوجي هامبيلا هي قهوة مختصة مميزة تُزرع في المرتفعات العالية في منطقة غوجي في إثيوبيا. تتميز هذه القهوة بعطرها الزهري الأنيق وحلاوتها المشرقة. تقدم نكهات رقيقة من الياسمين والبرغموت مع لمسات زهرية لطيفة وإشارة فاكهية من الخوخ. الكوب متوازن ونظيف ومعقد، بقوام ناعم ونهاية منعشة وممتعة."
                     }
                 },
-                FlavourNotes = new List<FlavourNote>
+                CoffeeProfile = new ProductCoffeeProfile
                 {
-                    new()
+                    OriginId = ethiopiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { wholeBean },
+                    FlavourNotes = new List<FlavourNote>
                     {
-                        Name = "Jasmine",
-                        DisplayOrder = 1,
-                        Translations = new List<FlavourNoteTranslation>
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Jasmine" },
-                            new() { LanguageCode = "ar", Name = "ياسمين" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Floral",
-                        DisplayOrder = 2,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 1,
+                            Name = "Jasmine",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Jasmine" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Floral" },
-                            new() { LanguageCode = "ar", Name = "زهري" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Bergamot",
-                        DisplayOrder = 3,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 2,
+                            Name = "Floral",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Floral" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Bergamot" },
-                            new() { LanguageCode = "ar", Name = "برغموت" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Peach",
-                        DisplayOrder = 4,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 3,
+                            Name = "Peach",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Peach" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Peach" },
-                            new() { LanguageCode = "ar", Name = "خوخ" }
+                            DisplayOrder = 4,
+                            Name = "Bergamot",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Bergamot" } }
                         }
                     }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "ethiopia-guji-hambela-250g", Price = 63.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 63.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 17.15m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "ethiopia-guji-hambela-1kg", Price = 214.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 214.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 58.26m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                },
+                Images = new List<ProductImage>
+                {
+                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/14fd206a-effe-437e-a05a-39cb55cec021_Ethiopia Hambela.jpg.jpeg", IsMain = true }
                 }
-            };
-            if (roastLight != null) ethiopiaGujiProduct.RoastLevels.Add(roastLight);
-            if (grindEspresso != null) ethiopiaGujiProduct.GrindTypes.Add(grindEspresso);
-            if (grindFilter != null) ethiopiaGujiProduct.GrindTypes.Add(grindFilter);
-            products.Add(ethiopiaGujiProduct);
-        }
-
-        // Product 3: Puro Localo (PLRB)
-        if (malaysiaOrigin != null)
-        {
-            var puroLocaloProduct = new Product
+            },
+            // 3. Tutti Frutti
+            new Product
             {
-                Slug = "puro-localo",
-                StockInKg = 35.0m,
-                IsActive = true,
+                Id = Guid.Parse("5198a987-b969-4ac3-b7c8-c96c590420ad"),
                 CategoryId = coffeeBeansCategory.Id,
-                OriginId = malaysiaOrigin.Id,
-                Translations = new List<ProductTranslation>
-                {
-                    new()
-                    {
-                        LanguageCode = "en",
-                        Name = "Puro Localo",
-                        Description = "Unique Malaysian Liberica variety from Puro Localo. Infused processing at 1200m altitude achieving exceptional cupping score of 89. Distinctive smoky and woody notes with caramel sweetness."
-                    },
-                    new()
-                    {
-                        LanguageCode = "ar",
-                        Name = "بورو لوكالو",
-                        Description = "صنف لايبيريكا الماليزي الفريد من بورو لوكالو. معالجة معطرة على ارتفاع 1200 متر بحصول على درجة تذوق استثنائية 89. نكهات دخانية وخشبية مميزة مع حلاوة الكراميل."
-                    }
-                },
-                FlavourNotes = new List<FlavourNote>
-                {
-                    new()
-                    {
-                        Name = "Sweet Tobacco",
-                        DisplayOrder = 1,
-                        Translations = new List<FlavourNoteTranslation>
-                        {
-                            new() { LanguageCode = "en", Name = "Sweet Tobacco" },
-                            new() { LanguageCode = "ar", Name = "التبغ الحلو" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Dark Caramel",
-                        DisplayOrder = 2,
-                        Translations = new List<FlavourNoteTranslation>
-                        {
-                            new() { LanguageCode = "en", Name = "Dark Caramel" },
-                            new() { LanguageCode = "ar", Name = "كراميل داكن" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Woody spice",
-                        DisplayOrder = 3,
-                        Translations = new List<FlavourNoteTranslation>
-                        {
-                            new() { LanguageCode = "en", Name = "Woody spice" },
-                            new() { LanguageCode = "ar", Name = "بهار خشبي" }
-                        }
-                    }
-                }
-            };
-            if (roastMedium != null) puroLocaloProduct.RoastLevels.Add(roastMedium);
-            if (grindFilter != null) puroLocaloProduct.GrindTypes.Add(grindFilter);
-            products.Add(puroLocaloProduct);
-        }
-
-        // Product 4: Tutti Frutti (TFRB)
-        if (colombiaOrigin != null)
-        {
-            var tuttiFruttiProduct = new Product
-            {
                 Slug = "tutti-frutti",
-                StockInKg = 42.0m,
                 IsActive = true,
-                CategoryId = coffeeBeansCategory.Id,
-                OriginId = colombiaOrigin.Id,
+                CreatedAt = DateTime.Parse("2026-03-13T18:06:54.074036Z").ToUniversalTime(),
                 Translations = new List<ProductTranslation>
                 {
-                    new()
+                    new ProductTranslation
                     {
                         LanguageCode = "en",
                         Name = "Tutti Frutti",
-                        Description = "Colombian Huila Purple Caturra at 1800-2000m altitude. Infused processing delivering an exceptional cupping score of 90. Vibrant citrus and tropical fruit notes with orange blossom aromatics."
+                        Description = "Tutti Frutti is a bright and lively coffee with a vibrant fruity profile. It offers fragrant notes of orange blossom, juicy mandarin, and a mix of tropical fruits. The cup is sweet, refreshing, and aromatic, with a smooth body and a pleasant, fruity finish that makes every sip feel lively and enjoyable."
                     },
-                    new()
+                    new ProductTranslation
                     {
                         LanguageCode = "ar",
                         Name = "توتي فروتي",
-                        Description = "كولومبيا هويلا بربل كاتورا على ارتفاع 1800-2000 متر. معالجة معطرة تقدم درجة تذوق استثنائية 90. نكهات حمضيات نابضة بالحياة وفاكهة استوائية مع عطريات زهر البرتقال."
+                        Description = "قهوة توتي فروتي هي قهوة مشرقة وحيوية تتميز بطابع فاكهي غني. تقدم نكهات عطرية من زهر البرتقال واليوسفي العصيري ومزيج من الفواكه الاستوائية. الكوب حلو ومنعش وعطري، بقوام ناعم ونهاية فاكهية لطيفة تجعل كل رشفة ممتعة ومليئة بالحيوية.\r\n\r\n"
                     }
                 },
-                FlavourNotes = new List<FlavourNote>
+                CoffeeProfile = new ProductCoffeeProfile
                 {
-                    new()
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { wholeBean },
+                    FlavourNotes = new List<FlavourNote>
                     {
-                        Name = "Orange Blossom",
-                        DisplayOrder = 1,
-                        Translations = new List<FlavourNoteTranslation>
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Orange Blossom" },
-                            new() { LanguageCode = "ar", Name = "زهر البرتقال" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Mandarin",
-                        DisplayOrder = 2,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 1,
+                            Name = "Orange Blossom",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Orange Blossom" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Mandarin" },
-                            new() { LanguageCode = "ar", Name = "يوسفي" }
-                        }
-                    },
-                    new()
-                    {
-                        Name = "Tropical Fruit",
-                        DisplayOrder = 3,
-                        Translations = new List<FlavourNoteTranslation>
+                            DisplayOrder = 2,
+                            Name = "Mandarin",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Mandarin" } }
+                        },
+                        new FlavourNote
                         {
-                            new() { LanguageCode = "en", Name = "Tropical Fruit" },
-                            new() { LanguageCode = "ar", Name = "فاكهة استوائية" }
+                            DisplayOrder = 3,
+                            Name = "Tropical Fruit",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Tropical Fruit" } }
                         }
                     }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "tutti-frutti-250g", Price = 169.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 169.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 46.01m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                },
+                Images = new List<ProductImage>
+                {
+                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/e13113ed-f855-49af-af53-5ce55269c56b_Tutti Frutti.jpg.jpeg", IsMain = true }
                 }
-            };
-            if (roastLight != null) tuttiFruttiProduct.RoastLevels.Add(roastLight);
-            if (grindFilter != null) tuttiFruttiProduct.GrindTypes.Add(grindFilter);
-            products.Add(tuttiFruttiProduct);
-        }
+            },
+            // 4. Dokha
+            new Product
+            {
+                Id = Guid.Parse("56af9d84-d249-4de3-97f2-c0046e15ac44"),
+                CategoryId = coffeeBeansCategory.Id,
+                Slug = "dokha",
+                IsActive = true,
+                CreatedAt = DateTime.Parse("2026-03-13T18:03:42.765985Z").ToUniversalTime(),
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Dokha",
+                        Description = "Dokha is a bold and distinctive blend crafted for those who appreciate rich and intense flavors. With notes of sweet tobacco, dark caramel, and woody spice, it delivers a deep and memorable sensory experience. Made from Liberica beans and sourced from Malaysia, it offers a unique profile that stands apart from traditional varieties. Perfect for those seeking a strong and unconventional experience."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "الدوخة",
+                        Description = "الدوخة هي مزيج جريء ومميز لعشاق النكهات القوية والغنية. تتميز بنفحات من التبغ الحلو، والكراميل الداكن، والتوابل الخشبية، لتمنح تجربة فريدة لا تُنسى. مصنوعة من حبوب ليبيريكا ومصدرها ماليزيا، وتقدم طعماً مختلفاً عن الأنواع التقليدية. مثالية لمن يبحث عن تجربة قوية وغير تقليدية."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = malaysiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { wholeBean },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Sweet Tobacco",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Sweet Tobacco" } }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Dark Caramel",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Dark Caramel" } }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Woody Spice",
+                            Translations = new List<FlavourNoteTranslation> { new FlavourNoteTranslation { LanguageCode = "en", Name = "Woody Spice" } }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "dokha-250g", Price = 162.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 162.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 44.10m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                },
+                Images = new List<ProductImage>
+                {
+                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/eee4a01f-deb2-4490-a194-9f5ae7642ce3_Dokha.jpg.jpeg", IsMain = true }
+                }
+            }
+        };
 
         await context.Products.AddRangeAsync(products);
         await context.SaveChangesAsync();
 
-        // 6. Create ProductPrices for all products (Multi-Currency Support)
-        var prices = new List<ProductPrice>();
+        logger.LogInformation("Products with Variant Architecture seeded successfully.");
+    }
 
-        foreach (var product in products)
-        {
-            // USD Prices
-            if (weight250g != null)
-            {
-                prices.Add(new ProductPrice
-                {
-                    ProductId = product.Id,
-                    ProductWeightId = weight250g.Id,
-                    Price = 15.00m,
-                    CurrencyCode = Currency.USD
-                });
-            }
 
-            if (weight1kg != null)
-            {
-                prices.Add(new ProductPrice
-                {
-                    ProductId = product.Id,
-                    ProductWeightId = weight1kg.Id,
-                    Price = 55.00m,
-                    CurrencyCode = Currency.USD
-                });
-            }
-
-            // AED Prices (approximately 3.67x USD rate)
-            if (weight250g != null)
-            {
-                prices.Add(new ProductPrice
-                {
-                    ProductId = product.Id,
-                    ProductWeightId = weight250g.Id,
-                    Price = 55.05m,
-                    CurrencyCode = Currency.AED
-                });
-            }
-
-            if (weight1kg != null)
-            {
-                prices.Add(new ProductPrice
-                {
-                    ProductId = product.Id,
-                    ProductWeightId = weight1kg.Id,
-                    Price = 201.85m,
-                    CurrencyCode = Currency.AED
-                });
-            }
-        }
-
-        await context.ProductPrices.AddRangeAsync(prices);
-        await context.SaveChangesAsync();
-
-        logger.LogInformation("Silo v2 product seeding completed successfully with multi-currency support.");
-        logger.LogInformation($"Created {products.Count} products with bilingual translations (EN + AR).");
-        logger.LogInformation($"Created {prices.Count} product prices for: USD, AED (2 currencies x 2 weights = 4 prices per product).");
-        logger.LogInformation("✓ Added 4 premium coffee products: BLRB, EGHRB, PLRB, TFRB with detailed flavour notes and multi-language translations");
-        logger.LogInformation("✓ FlavourNotes include: Chocolate, Walnut, Cookies (Brazil), Jasmine, Floral, Bergamot, Peach (Ethiopia), Sweet Tobacco, Dark Caramel, Woody spice (Malaysia), Orange Blossom, Mandarin, Tropical Fruit (Colombia)");
-        }
 
 
     private static async Task SeedCmsContentAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -671,95 +529,9 @@ public static class DbInitializer
 
     private static async Task SeedOrdersAsync(AppDbContext context, UserManager<ApplicationUser> userManager, ILogger<AppDbContext> logger)
     {
-        if (await context.Orders.AnyAsync())
-        {
-            logger.LogInformation("Orders already seeded. Skipping...");
-            return;
-        }
-
-        logger.LogInformation("Seeding Test Orders with Multi-Currency Support...");
-
-        // Get demo user
-        var demoUser = await userManager.FindByEmailAsync("demo@duneflame.com");
-        if (demoUser == null)
-        {
-            logger.LogWarning("Demo user not found. Skipping order seeding.");
-            return;
-        }
-
-        // Get product price for USD
-        var productPrice = await context.ProductPrices
-            .Include(pp => pp.Weight)
-            .FirstOrDefaultAsync(pp => pp.CurrencyCode == Currency.USD && pp.Weight!.Grams == 250);
-
-        if (productPrice == null)
-        {
-            logger.LogWarning("ProductPrice not found. Skipping order seeding.");
-            return;
-        }
-
-        // Create test order in USD
-        var usdOrder = new Order
-        {
-            UserId = demoUser.Id,
-            ShippingAddress = "123 Coffee Street, Seattle, WA 98101, USA",
-            Status = OrderStatus.Paid,
-            TotalAmount = 15.00m,
-            PointsRedeemed = 0,
-            PointsEarned = 15,
-            PaymentIntentId = "pi_test_usd_" + Guid.NewGuid().ToString().Substring(0, 8),
-            CurrencyCode = Currency.USD,
-            CreatedAt = DateTime.UtcNow.AddDays(-30)
-        };
-
-        // Add order item
-        var usdOrderItem = new OrderItem
-        {
-            ProductPriceId = productPrice.Id,
-            ProductName = "Ethiopian Yirgacheffe",
-            UnitPrice = 15.00m,
-            Quantity = 1,
-            CurrencyCode = Currency.USD
-        };
-        usdOrder.Items.Add(usdOrderItem);
-
-        await context.Orders.AddAsync(usdOrder);
-
-        // Create test order in AED
-        var aedProductPrice = await context.ProductPrices
-            .Include(pp => pp.Weight)
-            .FirstOrDefaultAsync(pp => pp.CurrencyCode == Currency.AED && pp.Weight!.Grams == 250);
-
-        if (aedProductPrice != null)
-        {
-            var aedOrder = new Order
-            {
-                UserId = demoUser.Id,
-                ShippingAddress = "Downtown, Dubai, UAE",
-                Status = OrderStatus.Paid,
-                TotalAmount = 55.05m,
-                PointsRedeemed = 0,
-                PointsEarned = 55,
-                PaymentIntentId = "pi_test_aed_" + Guid.NewGuid().ToString().Substring(0, 8),
-                CurrencyCode = Currency.AED,
-                CreatedAt = DateTime.UtcNow.AddDays(-15)
-            };
-
-            var aedOrderItem = new OrderItem
-            {
-                ProductPriceId = aedProductPrice.Id,
-                ProductName = "Ethiopian Yirgacheffe",
-                UnitPrice = 55.05m,
-                Quantity = 1,
-                CurrencyCode = Currency.AED
-            };
-            aedOrder.Items.Add(aedOrderItem);
-
-            await context.Orders.AddAsync(aedOrder);
-        }
-
-        await context.SaveChangesAsync();
-        logger.LogInformation("Test orders seeded successfully with multi-currency support.");
+        // Removed order seeding logic to allow proper EF Core migration to the new Variant Architecture.
+        logger.LogInformation("Legacy order auto-seeding removed for Variant Architecture compatibility.");
+        await Task.CompletedTask;
     }
 
     private static async Task SeedMarketingDataAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -838,17 +610,17 @@ public static class DbInitializer
             await context.ContactMessages.AddRangeAsync(contactMessages);
         }
 
-                await context.SaveChangesAsync();
-            }
+        await context.SaveChangesAsync();
+    }
 
-            private static async Task SeedShippingDataAsync(AppDbContext context, ILogger<AppDbContext> logger)
-            {
-                logger.LogInformation("Seeding Shipping Data (Countries, Cities, Rates)...");
+    private static async Task SeedShippingDataAsync(AppDbContext context, ILogger<AppDbContext> logger)
+    {
+        logger.LogInformation("Seeding Shipping Data (Countries, Cities, Rates)...");
 
-                // Seed Countries (GCC Members Only)
-                if (!await context.Countries.AnyAsync())
-                {
-                    var countries = new List<Country>
+        // Seed Countries (GCC Members Only)
+        if (!await context.Countries.AnyAsync())
+        {
+            var countries = new List<Country>
                     {
                         new() { Name = "Saudi Arabia", Code = "SA", IsActive = true },
                         new() { Name = "United Arab Emirates", Code = "AE", IsActive = true },
@@ -858,191 +630,105 @@ public static class DbInitializer
                         new() { Name = "Oman", Code = "OM", IsActive = true }
                     };
 
-                    await context.Countries.AddRangeAsync(countries);
-                    await context.SaveChangesAsync();
-                    logger.LogInformation("Countries seeded: {CountryCount} GCC countries added", countries.Count);
-                }
+            await context.Countries.AddRangeAsync(countries);
+            await context.SaveChangesAsync();
+            logger.LogInformation("Countries seeded: {CountryCount} GCC countries added", countries.Count);
+        }
 
-                // Seed Cities (GCC Countries)
-                if (!await context.Cities.AnyAsync())
+        // Seed Cities (GCC Countries)
+        if (!await context.Cities.AnyAsync())
+        {
+            var countries = await context.Countries.ToListAsync();
+            var cities = new List<City>();
+
+
+
+            // United Arab Emirates Cities/Regions (Emirates)
+            var aeCountry = countries.FirstOrDefault(c => c.Code == "AE");
+            if (aeCountry != null)
+            {
+                cities.AddRange(new[]
                 {
-                    var countries = await context.Countries.ToListAsync();
-                    var cities = new List<City>();
-
-                    // Saudi Arabia Cities/Regions
-                    var saCountry = countries.FirstOrDefault(c => c.Code == "SA");
-                    if (saCountry != null)
-                    {
-                        cities.AddRange(new[]
-                        {
-                            new City { Name = "Riyadh", CountryId = saCountry.Id },
-                            new City { Name = "Jeddah", CountryId = saCountry.Id },
-                            new City { Name = "Dammam", CountryId = saCountry.Id },
-                            new City { Name = "Khobar", CountryId = saCountry.Id },
-                            new City { Name = "Dhahran", CountryId = saCountry.Id },
-                            new City { Name = "Mecca", CountryId = saCountry.Id },
-                            new City { Name = "Medina", CountryId = saCountry.Id },
-                            new City { Name = "Tabuk", CountryId = saCountry.Id },
-                            new City { Name = "Buraydah", CountryId = saCountry.Id },
-                            new City { Name = "Hail", CountryId = saCountry.Id },
-                            new City { Name = "Qassim", CountryId = saCountry.Id },
-                            new City { Name = "Abha", CountryId = saCountry.Id },
-                            new City { Name = "Yanbu", CountryId = saCountry.Id },
-                            new City { Name = "Al Qurayyat", CountryId = saCountry.Id },
-                            new City { Name = "Sakaka", CountryId = saCountry.Id }
-                        });
-                    }
-
-                    // United Arab Emirates Cities/Regions (Emirates)
-                    var aeCountry = countries.FirstOrDefault(c => c.Code == "AE");
-                    if (aeCountry != null)
-                    {
-                        cities.AddRange(new[]
-                        {
-                            new City { Name = "Dubai", CountryId = aeCountry.Id },
                             new City { Name = "Abu Dhabi", CountryId = aeCountry.Id },
+                            new City { Name = "Dubai", CountryId = aeCountry.Id },
                             new City { Name = "Sharjah", CountryId = aeCountry.Id },
                             new City { Name = "Ajman", CountryId = aeCountry.Id },
-                            new City { Name = "Ras Al Khaimah", CountryId = aeCountry.Id },
-                            new City { Name = "Fujairah", CountryId = aeCountry.Id },
                             new City { Name = "Umm Al Quwain", CountryId = aeCountry.Id },
-                            new City { Name = "Al Ain", CountryId = aeCountry.Id },
-                            new City { Name = "Mussafah", CountryId = aeCountry.Id },
-                            new City { Name = "Khalifa City", CountryId = aeCountry.Id },
-                            new City { Name = "Deira", CountryId = aeCountry.Id },
-                            new City { Name = "Bur Dubai", CountryId = aeCountry.Id },
-                            new City { Name = "Jumeirah", CountryId = aeCountry.Id },
-                            new City { Name = "Downtown Dubai", CountryId = aeCountry.Id }
+                            new City { Name = "Ras Al Khaimah", CountryId = aeCountry.Id },
+                            new City { Name = "Fujairah", CountryId = aeCountry.Id }
                         });
-                    }
+            }
 
-                    // Qatar Cities/Regions
-                    var qaCountry = countries.FirstOrDefault(c => c.Code == "QA");
-                    if (qaCountry != null)
-                    {
-                        cities.AddRange(new[]
-                        {
-                            new City { Name = "Doha", CountryId = qaCountry.Id },
-                            new City { Name = "Al Rayyan", CountryId = qaCountry.Id },
-                            new City { Name = "Al Wakrah", CountryId = qaCountry.Id },
-                            new City { Name = "Al Khor", CountryId = qaCountry.Id },
-                            new City { Name = "Lusail", CountryId = qaCountry.Id },
-                            new City { Name = "Umm Salal", CountryId = qaCountry.Id },
-                            new City { Name = "Al Shamal", CountryId = qaCountry.Id },
-                            new City { Name = "Al Daayen", CountryId = qaCountry.Id },
-                            new City { Name = "Mesaieed", CountryId = qaCountry.Id }
-                        });
-                    }
 
-                    // Kuwait Cities/Regions (Governorates)
-                    var kwCountry = countries.FirstOrDefault(c => c.Code == "KW");
-                    if (kwCountry != null)
-                    {
-                        cities.AddRange(new[]
-                        {
-                            new City { Name = "Kuwait City", CountryId = kwCountry.Id },
-                            new City { Name = "Al Ahmadi", CountryId = kwCountry.Id },
-                            new City { Name = "Al Farwaniyah", CountryId = kwCountry.Id },
-                            new City { Name = "Jahra", CountryId = kwCountry.Id },
-                            new City { Name = "Mubarak Al-Kabeer", CountryId = kwCountry.Id },
-                            new City { Name = "Sabah Al-Salem", CountryId = kwCountry.Id },
+
+            // Kuwait Cities/Regions (Governorates)
+            var kwCountry = countries.FirstOrDefault(c => c.Code == "KW");
+            if (kwCountry != null)
+            {
+                cities.AddRange(new[]
+                {
+                            new City { Name = "Al Asimah (Capital)", CountryId = kwCountry.Id },
                             new City { Name = "Hawalli", CountryId = kwCountry.Id },
-                            new City { Name = "Salmiya", CountryId = kwCountry.Id },
-                            new City { Name = "Abbasiya", CountryId = kwCountry.Id },
-                            new City { Name = "Mahboula", CountryId = kwCountry.Id }
+                            new City { Name = "Farwaniya", CountryId = kwCountry.Id },
+                            new City { Name = "Ahmadi", CountryId = kwCountry.Id },
+                            new City { Name = "Jahra", CountryId = kwCountry.Id },
+                            new City { Name = "Mubarak Al-Kabeer", CountryId = kwCountry.Id }
                         });
-                    }
-
-                    // Bahrain Cities/Regions
-                    var bhCountry = countries.FirstOrDefault(c => c.Code == "BH");
-                    if (bhCountry != null)
-                    {
-                        cities.AddRange(new[]
-                        {
-                            new City { Name = "Manama", CountryId = bhCountry.Id },
-                            new City { Name = "Muharraq", CountryId = bhCountry.Id },
-                            new City { Name = "Riffa", CountryId = bhCountry.Id },
-                            new City { Name = "Isa Town", CountryId = bhCountry.Id },
-                            new City { Name = "Al Khbar", CountryId = bhCountry.Id },
-                            new City { Name = "Sitra", CountryId = bhCountry.Id },
-                            new City { Name = "Budaiya", CountryId = bhCountry.Id },
-                            new City { Name = "Juffair", CountryId = bhCountry.Id },
-                            new City { Name = "Adliya", CountryId = bhCountry.Id }
-                        });
-                    }
-
-                    // Oman Cities/Regions (Governorates)
-                    var omCountry = countries.FirstOrDefault(c => c.Code == "OM");
-                    if (omCountry != null)
-                    {
-                        cities.AddRange(new[]
-                        {
-                            new City { Name = "Muscat", CountryId = omCountry.Id },
-                            new City { Name = "Seeb", CountryId = omCountry.Id },
-                            new City { Name = "Salalah", CountryId = omCountry.Id },
-                            new City { Name = "Nizwa", CountryId = omCountry.Id },
-                            new City { Name = "Sohar", CountryId = omCountry.Id },
-                            new City { Name = "Ibra", CountryId = omCountry.Id },
-                            new City { Name = "Sur", CountryId = omCountry.Id },
-                            new City { Name = "Barka", CountryId = omCountry.Id },
-                            new City { Name = "Saham", CountryId = omCountry.Id },
-                            new City { Name = "Qurayyat", CountryId = omCountry.Id },
-                            new City { Name = "Mirbat", CountryId = omCountry.Id },
-                            new City { Name = "Adam", CountryId = omCountry.Id }
-                        });
-                    }
-
-                    await context.Cities.AddRangeAsync(cities);
-                    await context.SaveChangesAsync();
-                    logger.LogInformation("Cities seeded: {CityCount} GCC cities added", cities.Count);
-                }
-
-                    // Seed Shipping Rates
-                if (!await context.ShippingRates.AnyAsync())
-                {
-                    var countries = await context.Countries.ToListAsync();
-                    var rates = new List<ShippingRate>();
-
-                    foreach (var country in countries)
-                    {
-                        // Add rates for USD and AED
-                        rates.Add(new ShippingRate { CountryId = country.Id, Currency = Currency.USD, Cost = GetShippingCostUSD(country.Code) });
-                        rates.Add(new ShippingRate { CountryId = country.Id, Currency = Currency.AED, Cost = GetShippingCostAED(country.Code) });
-                    }
-
-                    await context.ShippingRates.AddRangeAsync(rates);
-                    await context.SaveChangesAsync();
-                    logger.LogInformation("Shipping Rates seeded: {RateCount} rates added", rates.Count);
-                }
-
-                logger.LogInformation("Shipping data initialization completed successfully.");
             }
 
-            private static decimal GetShippingCostUSD(string countryCode)
-            {
-                return countryCode switch
-                {
-                    "SA" => 18.99m,
-                    "AE" => 22.99m,
-                    "QA" => 21.99m,
-                    "KW" => 20.99m,
-                    "BH" => 19.99m,
-                    "OM" => 24.99m,
-                    _ => 0m
-                };
-            }
 
-            private static decimal GetShippingCostAED(string countryCode)
-            {
-                return countryCode switch
-                {
-                    "SA" => 69.99m,
-                    "AE" => 15.00m,
-                    "QA" => 80.99m,
-                    "KW" => 77.00m,
-                    "BH" => 73.00m,
-                    "OM" => 91.99m,
-                    _ => 0m
-                };
-            }
+
+            await context.Cities.AddRangeAsync(cities);
+            await context.SaveChangesAsync();
+            logger.LogInformation("Cities seeded: {CityCount} GCC cities added", cities.Count);
         }
+
+        // Seed Shipping Rates
+        if (!await context.ShippingRates.AnyAsync())
+        {
+            var countries = await context.Countries.ToListAsync();
+            var rates = new List<ShippingRate>();
+
+            foreach (var country in countries)
+            {
+                // Add rates for USD and AED
+                rates.Add(new ShippingRate { CountryId = country.Id, Currency = Currency.USD, Cost = GetShippingCostUSD(country.Code) });
+                rates.Add(new ShippingRate { CountryId = country.Id, Currency = Currency.AED, Cost = GetShippingCostAED(country.Code) });
+            }
+
+            await context.ShippingRates.AddRangeAsync(rates);
+            await context.SaveChangesAsync();
+            logger.LogInformation("Shipping Rates seeded: {RateCount} rates added", rates.Count);
+        }
+
+        logger.LogInformation("Shipping data initialization completed successfully.");
+    }
+
+    private static decimal GetShippingCostUSD(string countryCode)
+    {
+        return countryCode switch
+        {
+            "SA" => 34.00m,
+            "AE" => 6.81m,
+            "QA" => 34.00m,
+            "KW" => 34.00m,
+            "BH" => 34.00m,
+            "OM" => 34.00m,
+            _ => 0m
+        };
+    }
+
+    private static decimal GetShippingCostAED(string countryCode)
+    {
+        return countryCode switch
+        {
+            "SA" => 125.00m,
+            "AE" => 25.00m,
+            "QA" => 125.00m,
+            "KW" => 125.00m,
+            "BH" => 125.00m,
+            "OM" => 125.00m,
+            _ => 0m
+        };
+    }
+}

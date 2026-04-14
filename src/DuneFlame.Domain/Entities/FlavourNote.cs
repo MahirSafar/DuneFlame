@@ -8,8 +8,8 @@ namespace DuneFlame.Domain.Entities;
 /// </summary>
 public class FlavourNote : BaseEntity
 {
-    public Guid ProductId { get; set; }
-    public Product? Product { get; set; }
+    public Guid ProductCoffeeProfileId { get; set; }
+    public ProductCoffeeProfile? ProductCoffeeProfile { get; set; }
 
     /// <summary>
     /// The flavor note name/description (e.g., "Chocolate", "Fruity", "Nutty")

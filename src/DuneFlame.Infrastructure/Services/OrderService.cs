@@ -165,56 +165,51 @@ public class OrderService(
                 var newOrderItems = new List<OrderItem>();
 
                 // Create order items from basket items
-                // Price and weight MUST be taken from the database (ProductPrice), not from the basket (security)
+                // Price MUST be taken from the database (ProductVariant), not from the basket (security)
                 foreach (var basketItem in basket.Items)
                 {
-                    // Get the product and its weight from the basket item's ProductPrice
-                    var originalProductPrice = await _context.ProductPrices
-                        .Include(pp => pp.Product)
+                    // Get the product variant using BasketItem's ProductVariantId
+                    var productVariant = await _context.ProductVariants
+                        .Include(v => v.Product)
                         .ThenInclude(p => p.Translations)
-                        .Include(pp => pp.Weight)
-                        .FirstOrDefaultAsync(pp => pp.Id == basketItem.ProductPriceId) ?? throw new NotFoundException($"ProductPrice with ID {basketItem.ProductPriceId} not found");
-                    var product = originalProductPrice.Product ?? throw new NotFoundException($"Product for ProductPrice {basketItem.ProductPriceId} not found");
+                        .Include(v => v.Prices)
+                        .FirstOrDefaultAsync(v => v.Id == basketItem.ProductVariantId) ?? throw new NotFoundException($"ProductVariant with ID {basketItem.ProductVariantId} not found");
+                    var product = productVariant.Product ?? throw new NotFoundException($"Product for ProductVariant {basketItem.ProductVariantId} not found");
 
                     // Get product name from translation
                     var productName = product.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name ?? "Unknown";
 
-                    // Now fetch the price for the requested currency using the same weight
+                    // Resolve the active price correctly
                     var requestedCurrencyEnum = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
-                    var requestedCurrencyPrice = await _context.ProductPrices
-                        .Where(pp => pp.ProductId == product.Id &&
-                                    pp.ProductWeightId == originalProductPrice.ProductWeightId &&
-                                    pp.CurrencyCode == requestedCurrencyEnum)
-                        .FirstOrDefaultAsync() ?? throw new NotFoundException($"Price not found for product '{productName}' in currency {requestCurrency}");
+                    var resolvedPrice = productVariant.Prices.FirstOrDefault(p => p.Currency == requestedCurrencyEnum)?.Price ?? productVariant.Price;
 
-                    // Calculate total weight in KG: Quantity * (WeightGrams / 1000)
-                    decimal totalWeightKg = basketItem.Quantity * (originalProductPrice.Weight!.Grams / 1000m);
-
-                    // Check stock availability based on weight
-                    if (product.StockInKg < totalWeightKg)
+                    // Check stock availability
+                    if (productVariant.StockQuantity.HasValue && productVariant.StockQuantity.Value < basketItem.Quantity)
                     {
                         throw new BadRequestException(
-                            $"Insufficient stock for product '{productName}' (Weight: {originalProductPrice.Weight.Label}). " +
-                            $"Available: {product.StockInKg}kg, Requested: {totalWeightKg}kg");
+                            $"Insufficient stock for variant '{productName}'. " +
+                            $"Available: {productVariant.StockQuantity.Value}, Requested: {basketItem.Quantity}");
                     }
 
                     // Create OrderItem (snapshot) with database price in requested currency
                     // CRITICAL SECURITY: Use REAL price from database, not frontend-provided price
                     _logger.LogInformation(
-                        "Price lookup for ProductPriceId {ProductPriceId}: Database price = {Price} {Currency} (original was {OriginalCurrency})",
-                        basketItem.ProductPriceId, requestedCurrencyPrice.Price, requestedCurrencyPrice.CurrencyCode, originalProductPrice.CurrencyCode);
+                        "Price lookup for ProductVariantId {ProductVariantId}: Database price = {Price} {Currency}",
+                        basketItem.ProductVariantId, resolvedPrice, requestedCurrencyEnum);
 
                     var orderItem = new OrderItem
                     {
-                        ProductPriceId = requestedCurrencyPrice.Id,
+                        ProductVariantId = productVariant.Id,
                         ProductName = productName,
-                        UnitPrice = requestedCurrencyPrice.Price,
+                        UnitPrice = resolvedPrice,
                         Quantity = basketItem.Quantity,
-                        CurrencyCode = requestedCurrencyPrice.CurrencyCode
+                        CurrencyCode = requestedCurrencyEnum,
+                        SelectedRoastLevelName = basketItem.RoastLevelName,
+                        SelectedGrindTypeName = basketItem.GrindTypeName
                     };
 
                     newOrderItems.Add(orderItem);
-                    subtotal += requestedCurrencyPrice.Price * basketItem.Quantity;
+                    subtotal += resolvedPrice * basketItem.Quantity;
                 }
 
                 decimal originalSubtotalForShipping = subtotal;
@@ -749,26 +744,18 @@ public class OrderService(
             // Calculate subtotal from basket items
             foreach (var basketItem in basket.Items)
             {
-                var originalProductPrice = await _context.ProductPrices
-                    .Include(pp => pp.Product)
-                    .Include(pp => pp.Weight)
-                    .FirstOrDefaultAsync(pp => pp.Id == basketItem.ProductPriceId);
+                var productVariant = await _context.ProductVariants
+                    .Include(v => v.Prices)
+                    .FirstOrDefaultAsync(v => v.Id == basketItem.ProductVariantId);
 
-                if (originalProductPrice == null)
+                if (productVariant == null)
                     continue;
 
                 // Fetch price in requested currency
                 var requestedCurrencyEnum = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);
-                var requestedCurrencyPrice = await _context.ProductPrices
-                    .Where(pp => pp.ProductId == originalProductPrice.ProductId &&
-                                pp.ProductWeightId == originalProductPrice.ProductWeightId &&
-                                pp.CurrencyCode == requestedCurrencyEnum)
-                    .FirstOrDefaultAsync();
+                var resolvedPrice = productVariant.Prices.FirstOrDefault(p => p.Currency == requestedCurrencyEnum)?.Price ?? productVariant.Price;
 
-                if (requestedCurrencyPrice != null)
-                {
-                    subtotal += requestedCurrencyPrice.Price * basketItem.Quantity;
-                }
+                subtotal += resolvedPrice * basketItem.Quantity;
             }
 
             decimal originalSubtotalForShipping = subtotal;
@@ -826,12 +813,11 @@ public class OrderService(
     {
         foreach (var item in items)
         {
-            var productPrice = await _context.ProductPrices.Include(pp => pp.Weight).FirstOrDefaultAsync(pp => pp.Id == item.ProductPriceId);
-            if (productPrice != null && productPrice.Weight != null)
+            var productVariant = await _context.ProductVariants.FirstOrDefaultAsync(v => v.Id == item.ProductVariantId);
+            if (productVariant != null && productVariant.StockQuantity.HasValue)
             {
-                decimal totalWeightKg = item.Quantity * (productPrice.Weight.Grams / 1000m);
                 // ATOMIC UPDATE: Prevents concurrent requests from overwriting each other's stock reduction
-                await _context.Database.ExecuteSqlInterpolatedAsync($"UPDATE Products SET StockInKg = StockInKg - {totalWeightKg} WHERE Id = {productPrice.ProductId} AND StockInKg >= {totalWeightKg}");
+                await _context.Database.ExecuteSqlInterpolatedAsync($"UPDATE ProductVariants SET StockQuantity = StockQuantity - {item.Quantity} WHERE Id = {productVariant.Id} AND StockQuantity >= {item.Quantity}");
             }
         }
     }
@@ -864,7 +850,7 @@ public class OrderService(
     {
         var orderItems = order.Items.Select(oi => new OrderItemDto(
             oi.Id,
-            oi.ProductPriceId,
+            oi.ProductVariantId,
             oi.ProductName,
             oi.UnitPrice,
             oi.Quantity
