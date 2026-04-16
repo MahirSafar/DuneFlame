@@ -19,13 +19,15 @@ public record CreateProductRequest(
     string Name,
     string Description,
     Guid CategoryId,
+    Guid? BrandId,
     Guid? OriginId,
     List<Guid> RoastLevelIds,
     List<Guid> GrindTypeIds,
     List<FlavourNoteCreateDto> FlavourNotes,
     List<VariantCreateDto> Variants,
     List<IFormFile>? Images,
-    List<ProductTranslationCreateDto>? Translations = null
+    List<ProductTranslationCreateDto>? Translations = null,
+    Dictionary<string, string>? Specifications = null
 );
 
 public record FlavourNoteCreateDto(

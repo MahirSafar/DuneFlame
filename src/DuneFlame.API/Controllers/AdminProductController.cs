@@ -37,7 +37,10 @@ public class AdminProductController(
         [FromQuery] string? sortBy = null,
         [FromQuery] Guid? categoryId = null,
         [FromQuery] decimal? minPrice = null,
-        [FromQuery] decimal? maxPrice = null)
+        [FromQuery] decimal? maxPrice = null,
+        [FromQuery] Guid? brandId = null,
+        [FromQuery] Guid[]? roastLevelIds = null,
+        [FromQuery] Guid[]? originIds = null)
     {
         try
         {
@@ -48,7 +51,10 @@ public class AdminProductController(
                 search: search,
                 categoryId: categoryId,
                 minPrice: minPrice,
-                maxPrice: maxPrice);
+                maxPrice: maxPrice,
+                brandId: brandId,
+                roastLevelIds: roastLevelIds,
+                originIds: originIds);
 
             return Ok(result);
         }

@@ -20,8 +20,11 @@ public record ProductResponse(
     bool IsActive,
     Guid CategoryId,
     string CategoryName,
+    Guid? BrandId,
+    string? BrandName,
     List<ProductTranslationDto> Translations,  // ← ALL available translations
     ProductCoffeeProfileDto? CoffeeProfile,
+    Dictionary<string, string>? Specifications,
     List<VariantDto> Variants,
     DateTime CreatedAt,
     DateTime? UpdatedAt,

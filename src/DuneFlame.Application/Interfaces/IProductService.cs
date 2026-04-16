@@ -22,6 +22,7 @@ public interface IProductService
         Guid? categoryId = null,
         decimal? minPrice = null,
         decimal? maxPrice = null,
+        Guid? brandId = null,
         Guid[]? roastLevelIds = null,
         Guid[]? originIds = null);
     Task<PagedResult<ProductResponse>> GetAllAdminAsync(
@@ -32,6 +33,7 @@ public interface IProductService
         Guid? categoryId = null,
         decimal? minPrice = null,
         decimal? maxPrice = null,
+        Guid? brandId = null,
         Guid[]? roastLevelIds = null,
         Guid[]? originIds = null);
 

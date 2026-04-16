@@ -63,10 +63,15 @@ public class ProductService(
         {
             Slug = uniqueSlug,
             CategoryId = request.CategoryId,
+            BrandId = request.BrandId,
             IsActive = true,
             CoffeeProfile = isCoffee ? new ProductCoffeeProfile
             {
                 OriginId = request.OriginId
+            } : null,
+            EquipmentProfile = !isCoffee && request.Specifications != null && request.Specifications.Any() ? new ProductEquipmentProfile
+            {
+                Specifications = request.Specifications
             } : null
         };
 
@@ -324,8 +329,10 @@ public class ProductService(
                 var product = await _context.Products
                     .Include(p => p.Category)
                         .ThenInclude(c => c.Translations)
+                    .Include(p => p.Brand)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
+                    .Include(p => p.EquipmentProfile)
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Prices)
                     .Include(p => p.Variants)
@@ -375,8 +382,10 @@ public class ProductService(
                 var product = await _context.Products
                     .Include(p => p.Category)
                         .ThenInclude(c => c.Translations)
+                    .Include(p => p.Brand)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
+                    .Include(p => p.EquipmentProfile)
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Prices)
                     .Include(p => p.Variants)
@@ -417,6 +426,7 @@ public class ProductService(
         Guid? categoryId = null,
         decimal? minPrice = null,
         decimal? maxPrice = null,
+        Guid? brandId = null,
         Guid[]? roastLevelIds = null,
         Guid[]? originIds = null)
     {
@@ -431,7 +441,7 @@ public class ProductService(
         // Build cache key including new filters
         var roastLevelIdsCacheKey = roastLevelIds != null ? string.Join(",", roastLevelIds.OrderBy(x => x)) : "null";
         var originIdsCacheKey = originIds != null ? string.Join(",", originIds.OrderBy(x => x)) : "null";
-        var cacheKey = $"{ProductCacheKeyPrefix}:all:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
+        var cacheKey = $"{ProductCacheKeyPrefix}:all:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{brandId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
         var cacheTag = $"{ProductTagPrefix}:list";
 
         var result = await _cache.GetOrCreateAsync(
@@ -440,8 +450,10 @@ public class ProductService(
             {
                 var query = _context.Products
                     .Include(p => p.Category)
+                    .Include(p => p.Brand)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
+                    .Include(p => p.EquipmentProfile)
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Prices)
                     .Include(p => p.Variants)
@@ -464,6 +476,11 @@ public class ProductService(
                 if (categoryId.HasValue)
                 {
                     query = query.Where(p => p.CategoryId == categoryId.Value);
+                }
+
+                if (brandId.HasValue)
+                {
+                    query = query.Where(p => p.BrandId == brandId.Value);
                 }
 
                 if (!string.IsNullOrWhiteSpace(search))
@@ -556,6 +573,7 @@ public class ProductService(
                         Guid? categoryId = null,
                         decimal? minPrice = null,
                         decimal? maxPrice = null,
+                        Guid? brandId = null,
                         Guid[]? roastLevelIds = null,
                         Guid[]? originIds = null)
     {
@@ -568,7 +586,7 @@ public class ProductService(
 
         var roastLevelIdsCacheKey = roastLevelIds != null ? string.Join(",", roastLevelIds.OrderBy(x => x)) : "null";
         var originIdsCacheKey = originIds != null ? string.Join(",", originIds.OrderBy(x => x)) : "null";
-        var cacheKey = $"{ProductCacheKeyPrefix}:admin:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
+        var cacheKey = $"{ProductCacheKeyPrefix}:admin:{pageNumber}:{pageSize}:{sortBy}:{search}:{categoryId}:{brandId}:{currentCurrency}:{languageCode}:{minPrice}:{maxPrice}:{roastLevelIdsCacheKey}:{originIdsCacheKey}";
         var cacheTag = $"{ProductTagPrefix}:admin-list";
 
         var result = await _cache.GetOrCreateAsync(
@@ -578,8 +596,10 @@ public class ProductService(
                 var query = _context.Products
                     .Include(p => p.Category)
                         .ThenInclude(c => c.Translations)
+                    .Include(p => p.Brand)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
+                    .Include(p => p.EquipmentProfile)
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Prices)
                     .Include(p => p.Variants)
@@ -601,6 +621,11 @@ public class ProductService(
                 if (categoryId.HasValue)
                 {
                     query = query.Where(p => p.CategoryId == categoryId.Value);
+                }
+
+                if (brandId.HasValue)
+                {
+                    query = query.Where(p => p.BrandId == brandId.Value);
                 }
 
                 if (!string.IsNullOrWhiteSpace(search))
@@ -830,12 +855,15 @@ public class ProductService(
             CategoryName: product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.Name
                           ?? product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name
                           ?? "Unknown",
+            BrandId: product.BrandId,
+            BrandName: product.Brand?.Name,
             Translations: product.Translations?.Select(t => new ProductTranslationDto(
                  LanguageCode: t.LanguageCode,
                  Name: t.Name,
                  Description: t.Description
             )).ToList() ?? new List<ProductTranslationDto>(),
             CoffeeProfile: coffeeProfileDto,
+            Specifications: product.EquipmentProfile?.Specifications,
             Variants: variants,
             CreatedAt: product.CreatedAt,
             UpdatedAt: product.UpdatedAt,

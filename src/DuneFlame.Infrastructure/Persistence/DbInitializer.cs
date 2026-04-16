@@ -44,8 +44,12 @@ public static class DbInitializer
             // 5. Seed Categories
             await SeedCategoriesAsync(context, logger);
 
+            // 5.5 Seed Brands
+            await SeedBrandsAsync(context, logger);
+
             // 6. Seed Products
             await SeedProductsAsync(context, logger);
+            await SeedFiorenzatoGrindersAsync(context, logger);
 
             // 7. Seed CMS Content (Sliders & About)
             await SeedCmsContentAsync(context, logger);
@@ -198,12 +202,39 @@ public static class DbInitializer
                     new() { LanguageCode = "en", Name = "Coffee Filters" },
                     new() { LanguageCode = "ar", Name = "مرشحات القهوة" }
                 }
+            },
+            new()
+            {
+                Slug = "equipment",
+                Translations = new List<CategoryTranslation>
+                {
+                    new() { LanguageCode = "en", Name = "Equipment" },
+                    new() { LanguageCode = "ar", Name = "معدات" }
+                }
             }
         };
 
         await context.Categories.AddRangeAsync(categories);
         await context.SaveChangesAsync();
         logger.LogInformation("Categories with translations seeded successfully.");
+    }
+
+    private static async Task SeedBrandsAsync(AppDbContext context, ILogger<AppDbContext> logger)
+    {
+        if (await context.Brands.AnyAsync()) return;
+
+        logger.LogInformation("Seeding Brands...");
+        var brands = new List<Brand>
+        {
+            new Brand { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), Name = "DuneFlame", Description = "Premium selection of freshly roasted coffees", IsActive = true },
+            new Brand { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), Name = "Oasis Espresso", Description = "Rich and bold espresso blends", IsActive = true },
+            new Brand { Id = Guid.Parse("33333333-3333-3333-3333-333333333333"), Name = "Desert Brews", Description = "Classic and satisfying daily brews", IsActive = true },
+            new Brand { Id = Guid.Parse("44444444-4444-4444-4444-444444444444"), Name = "Fiorenzato", Description = "Professional coffee grinders", IsActive = true }
+        };
+
+        await context.Brands.AddRangeAsync(brands);
+        await context.SaveChangesAsync();
+        logger.LogInformation("Brands seeded successfully.");
     }
 
     private static async Task SeedProductsAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -248,7 +279,7 @@ public static class DbInitializer
             new Product
             {
                 Id = Guid.Parse("b8e278d7-0f7a-442f-bb10-8dc8d91a175c"),
-                CategoryId = coffeeBeansCategory.Id,
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Slug = "brazil-lenis",
                 IsActive = true,
                 CreatedAt = DateTime.Parse("2026-03-13T17:52:38.791374Z").ToUniversalTime(),
@@ -308,7 +339,7 @@ public static class DbInitializer
             new Product
             {
                 Id = Guid.Parse("c3ce8096-22ca-4fc5-88c2-4dc4ecdda191"),
-                CategoryId = coffeeBeansCategory.Id,
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Slug = "ethiopia-guji-hambela",
                 IsActive = true,
                 CreatedAt = DateTime.Parse("2026-03-13T17:59:43.207652Z").ToUniversalTime(),
@@ -374,7 +405,7 @@ public static class DbInitializer
             new Product
             {
                 Id = Guid.Parse("5198a987-b969-4ac3-b7c8-c96c590420ad"),
-                CategoryId = coffeeBeansCategory.Id,
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Slug = "tutti-frutti",
                 IsActive = true,
                 CreatedAt = DateTime.Parse("2026-03-13T18:06:54.074036Z").ToUniversalTime(),
@@ -433,7 +464,7 @@ public static class DbInitializer
             new Product
             {
                 Id = Guid.Parse("56af9d84-d249-4de3-97f2-c0046e15ac44"),
-                CategoryId = coffeeBeansCategory.Id,
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Slug = "dokha",
                 IsActive = true,
                 CreatedAt = DateTime.Parse("2026-03-13T18:03:42.765985Z").ToUniversalTime(),
@@ -730,5 +761,288 @@ public static class DbInitializer
             "OM" => 125.00m,
             _ => 0m
         };
+    }
+
+    private static async Task SeedFiorenzatoGrindersAsync(AppDbContext context, ILogger<AppDbContext> logger)
+    {
+        var category = await context.Categories.FirstOrDefaultAsync(c => c.Slug == "equipment");
+        var brand = await context.Brands.FirstOrDefaultAsync(b => b.Name == "Fiorenzato");
+
+        if (category == null || brand == null) return;
+        if (await context.Products.AnyAsync(p => p.BrandId == brand.Id)) return;
+
+        logger.LogInformation("Seeding Fiorenzato Grinders...");
+
+        var colorAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color");
+        if (colorAttribute == null)
+        {
+            colorAttribute = new ProductAttribute { Name = "Color" };
+            context.ProductAttributes.Add(colorAttribute);
+            await context.SaveChangesAsync();
+        }
+
+        async Task<ProductAttributeValue> GetOrAddColorFallback(string colorName)
+        {
+            var val = await context.ProductAttributeValues.FirstOrDefaultAsync(v => v.ProductAttributeId == colorAttribute.Id && v.Value == colorName);
+            if (val == null)
+            {
+                val = new ProductAttributeValue { ProductAttributeId = colorAttribute.Id, Value = colorName };
+                context.ProductAttributeValues.Add(val);
+                await context.SaveChangesAsync();
+            }
+            return val;
+        }
+
+        var grinders = new List<(string Name, string NameAr, string Description, string DescriptionAr, decimal PriceAED, decimal PriceUSD, string[] Colors, Dictionary<string, string> Specs)>
+        {
+            ("F83 E XGI PRO", "F83 E XGI برو", "The F83 E XGi PRO is the most advanced and powerful grinder in the Fiorenzato catalog. It features the XGi weighing technology and the PRO maintenance system, but utilizes larger 83mm flat burrs for maximum speed and superior thermal stability. It is the ultimate tool for elite cafes, offering the highest level of dosing precision (by weight) and the fastest workflow, all while being incredibly easy to clean and service.", "تُعد F83 E XGi PRO المطحنة الأكثر تقدماً وقوة في كتالوج فيورينزاتو. تتميز بتقنية الوزن XGi ونظام الصيانة PRO، ولكنها تستخدم شفرات مسطحة أكبر مقاس 83 ملم لتحقيق أقصى سرعة واستقرار حراري فائق. إنها الأداة المثالية للمقاهي النخبوية، حيث توفر أعلى مستوى من دقة الجرعات (بالوزن) وأسرع تدفق عمل، مع كونها سهلة التنظيف والصيانة بشكل لا يصدق.", 
+            11200.00m, 3049.69m, new[] { "Glossy Black" }, new() {
+                {"Burrs", "Ø 83 mm flat coated burrs (titanium-aluminum-carbonnitrogen)"},
+                {"Grind-by-Weight (GbW)", "XGi load-cell technology delivers precise dosing in grams via a responsive touchscreen (4.3″ IPS display)"},
+                {"Motor Power & Speed", "650 W motor spinning at 1,350 RPM (50 Hz) and 1,550 RPM (60 Hz)"},
+                {"Hopper Capacity", "Holds ~1.5 kg (3.3 lbs) of beans"},
+                {"Weight & Dimensions", "Approx. 20 kg (44 lbs); footprint ~255 × 310 × 700 mm (10 × 12.2 × 27.5 in)"},
+                {"Maintenance", "PRO quick-release grinding chamber—clean or remove burrs without resetting grind settings"},
+                {"Touchscreen", "allows programmable single/double/triple/manual dosing"},
+                {"Throughput", "up to ~300 drinks/day"}
+            }),
+            ("F64 E XGI PRO", "F64 E XGI برو", "The F64 E XGi PRO is the pinnacle of professional grinding technology, combining the patented XGi Grind-by-Weight system with the PRO detachable chamber. The XGi system uses advanced algorithms to calculate the exact weight of coffee ground in grams, while the PRO feature allows the entire grinding head to be removed for cleaning without affecting the grind size. This model provides unparalleled consistency and ease of maintenance for specialty coffee shops.", "تمثل F64 E XGi PRO قمة تكنولوجيا الطحن الاحترافي، حيث تجمع بين نظام XGi (الطحن بالوزن) الحاصل على براءة اختراع و حجرة الطحن القابلة للفصل (PRO). يستخدم نظام XGi خوارزميات متطورة لحساب الوزن الدقيق للقهوة المطحونة بالجرامات، بينما تتيح ميزة PRO إزالة رأس الطحن بالكامل للتنظيف دون التأثير على درجة الطحن. يوفر هذا الموديل تناسقاً لا مثيل له وسهولة في الصيانة لمقاهي القهوة المختصة.", 
+            9400.00m, 2559.56m, new[] { "Glossy Black" }, new() {
+                {"Burrs", "64 mm flat coated steel burrs (titanium-aluminum-carbonnitrogen blend)"},
+                {"Grinding System", "Grind-by-Weight with XGi tech – dose by grams, highly precise via load cell"},
+                {"Motor", "600 W, running at 1,350 RPM (50 Hz) or 1,550 RPM (60 Hz)"},
+                {"Cooling", "EVO automatic fan cooling to maintain optimal bean temperature"},
+                {"Dosing & Display", "Smart touchscreen (approx. 4.3″ IPS) with programmable single/double/triple doses, dose stats, burr wear indicator"},
+                {"Maintenance", "PRO quick-release grinding chamber—clean or remove burrs without resetting grind settings"},
+                {"Capacity & Output", "1.5 kg hopper (~3.3 lbs); suitable for ~3 kg/day throughput"},
+                {"Dimensions", "~255 × 635 × 320 mm (10″ × 25″ × 12.6″)"},
+                {"Weight", "~15–18 kg (33–40 lbs)"}
+            }),
+            ("F 83 E SENSE", "F 83 E سينس", "The F83 E Sense combines the massive output of 83mm burrs with the precision of integrated weighing technology. This model is designed for high-traffic environments where speed and accuracy are non-negotiable. The built-in scale allows for real-time dose monitoring, ensuring that every double shot is identical to the last. With its large touchscreen interface and high-speed motor, it represents the next generation of high-volume, precision espresso grinding.", "تجمع F83 E Sense بين الإنتاجية الضخمة لشفرات الـ 83 ملم ودقة تقنية الوزن المدمجة. صُمم هذا الموديل للبيئات المزدحمة حيث لا مجال للمساومة على السرعة والدقة. يسمح الميزان المدمج بمراقبة الجرعة في الوقت الفعلي، مما يضمن تطابق كل جرعة مع التي سبقتها تماماً. بفضل واجهة شاشة اللمس الكبيرة والمحرك عالي السرعة، تمثل هذه المطحنة الجيل القادم من مطاحن الإسبريسو عالية الدقة والإنتاجية.", 
+            
+            10500.00m, 2859.09m, new[] { "Matt Black" }, new() {
+                {"Burrs", "Flat 83 mm M340 hardened steel burrs"},
+                {"Motor Power", "650 W – 1,350 RPM (50 Hz) / 1,550 RPM (60 Hz)"},
+                {"Integrated Scale", "Precise Grind-by-Weight (GbW) system accurate to 0.1 g, allowing dosing by weight or time"},
+                {"Hopper Capacity", "~1.5 kg (3.3 lbs)"},
+                {"Grinding Output", "Approx. 3.1 g/sec (suitable for high-volume cafes)"},
+                {"Touch screen", "3.5″ color Cap Sense display for programming single, double, or triple doses, and viewing stats"},
+                {"Burr Life", "Up to 4,500 kg of coffee before replacement"},
+                {"Dimensions & Weight", "23 cm (W) x 68 cm (H) x 27 cm (D); approx. 15 kg (33 lbs)"}
+            }),
+            ("F64 EVO Sense", "F64 EVO سينس", "English Description: The F64 EVO Sense introduces high-precision Grind-by-Weight technology to the industry-standard F64 platform. By integrating a sophisticated scale into the portafilter holder, the Sense technology ensures that the grinder delivers the exact dose in grams every time, automatically compensating for changes in bean density or environment. It retains the signature 64mm burrs and cooling fan of the EVO series, making it the perfect choice for baristas who demand absolute precision without using an external scale.", "تقدم F64 EVO Sense تقنية الطحن بالوزن عالية الدقة إلى فئة F64 القياسية. من خلال دمج ميزان متطور في حامل البورتافلتر، تضمن تقنية Sense تقديم الجرعة الدقيقة بالجرامات في كل مرة، حيث تقوم تلقائياً بالتعويض عن التغيرات في كثافة البن أو العوامل البيئية. تحتفظ المطحنة بشفرات 64 ملم ومروحة التبريد الخاصة بسلسلة EVO، مما يجعلها الخيار الأمثل للباريستا الذين يبحثون عن الدقة المطلقة دون الحاجة لميزان خارجي.", 
+            6780.00m, 1846.15m, new[] { "Glossy Black", "White" }, new() {
+                {"Burrs", "64 mm flat"},
+                {"Motor & Speed", "450 W, spinning at 1,350 RPM (50 Hz) or 1,550 RPM (60 Hz)"},
+                {"Grind-by-Weight (GbW)", "Integrated scale inside the fork with 0.1 g accuracy"},
+                {"Direct Mode", "on-demand grind"},
+                {"Master Mode", "automatically detects portafilter and dose"},
+                {"Hopper Capacity", "~1.5 kg (3.3 lbs)"},
+                {"Productivity", "~3.4 g/sec output"},
+                {"Cooling Technology", "EVO automatic fan cooling to stabilize grind temperature"},
+                {"Touchscreen Display", "Responsive IPS screen showing dose stats, burr wear, date/time—and supports single/double/triple/manual dosing"},
+                {"Maintenance", "Removable PRO chamber allows easy cleaning without losing grind settings"},
+                {"Dimensions & Weight", "230 × 615 × 270 mm (~9″×24″×10.6″); weight ~13 kg (28.6-29 lbs)"}
+            }),
+            ("F83 E PRO", "F83 E برو", "The F83 E PRO is a heavy-duty electronic grinder equipped with massive 83mm flat burrs and a powerful motor for lightning-fast grinding. As part of the PRO line, it features a detachable grinding chamber, allowing for deep cleaning or burr access without losing your grind setting. It includes a built-in cooling fan and a high-definition touchscreen to monitor performance, making it the perfect choice for the busiest specialty coffee bars.", "تُعد F83 E PRO مطحنة إلكترونية قوية مصممة للعمل الشاق، وهي مزودة بشفرات مسطحة ضخمة مقاس 83 ملم ومحرك قوي لطحن فائق السرعة. كجزء من سلسلةبرو، تتميز بـ حجرة طحن قابلة للفصل، مما يسمح بالتنظيف العميق أو الوصول للشفرات دون فقدان إعدادات الطحن. تتضمن مروحة تبريد مدمجة وشاشة لمس عالية الدقة لمراقبة الأداء، مما يجعلها الخيار الأمثل للمقاهي المزدحمة جداً.", 
+            
+            8000.00m, 2178.35m, new[] { "Glossy Black" }, new() {
+                {"Burrs", "83 mm flat M340 stainless steel burrs with Dark-T® titanium-Al-C-N coating"},
+                {"Motor & Speed", "650 W motor spinning at approximately 1,350 RPM (50 Hz) or 1,550 RPM (60 Hz)"},
+                {"Adjustment", "Stepless micrometric ring-nut grind adjustment"},
+                {"Dosing", "On-demand touchscreen for single/double/triple/manual doses, with real-time"},
+                {"Cooling Technology", "EVO automatic fan cooling to stabilize grind temperature"},
+                {"Hopper Capacity", "1.5 kg (3.3 lbs) bean hopper"},
+                {"Weight & Dimensions", "15 kg (33 lbs); ~230 × 670 × 270 mm (9 × 26.3 × 10.6 in)"},
+                {"Maintenance", "Removable PRO chamber allows easy cleaning without losing grind settings"},
+                {"Throughput", "Designed for high-volume cafés—up to ~300 drinks/day or ~7 kg coffee per day"},
+                {"Dimensions", "230x670x270 Mm"}
+            }),
+            ("F83 E", "F83 E", "The F83 E is a heavy-duty professional electronic grinder featuring massive 83mm flat steel burrs. These larger burrs allow for much faster grinding speeds and improved heat dissipation, making it ideal for the busiest coffee environments. It features a large color touchscreen, micrometric adjustment, and a powerful motor designed to deliver precise doses in seconds, maintaining peak performance under heavy daily stress.", "تُعتبر F83 E الأخ الأكبر لمطحنة F64، وهي مصممة للمقاهي ذات الاستهلاك الكثيف جداً التي تتطلب سرعة وقوة عالية. تتميز بشفرات مسطحة ضخمة مقاس 83 ملم، مما يسمح بسرعة طحن فائقة وتوزيع أفضل للحرارة. تشتمل على شاشة ملونة كبيرة تعمل باللمس، ونظام تعديل ميكرومتري، ومحرك قوي مصمم لتقديم جرعات دقيقة في ثوانٍ معدودة، مع الحفاظ على الأداء العالي تحت ضغط العمل المستمر.", 
+            
+            6000.00m, 1633.76m, new[] { "White", "Matt Black, Red" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Varnishing", "standard"},
+                {"Doses adjustment", "in seconds"},
+                {"Power", "650 Watt"},
+                {"Burrs diameter", "Ø 83 mm / Burrs type: Flat"},
+                {"Burrs revs", "1350/Min (50 Hz) – 1550/Min (60 Hz)"},
+                {"Coffee bean hopper capacity", "1.5 Kg"},
+                {"Net weight", "15 Kg"},
+                {"Dimensions", "230x670x270 mm"},
+                {"Recommended consumption", "Up to 7 kg per day"},
+                {"Burrs life", "600 kg"}
+            }),
+            ("F64 Evo Pro", "F64 إيفو برو", "The F64 EVO PRO is a professional electronic grinder that features 64mm flat steel burrs and a built-in automatic cooling fan to maintain bean temperature during peak hours. The PRO designation signifies the Detachable Grinding Chamber; this innovative system allows baristas to remove the upper burr assembly for thorough cleaning or replacement without losing the current grind setting. It features a high-definition CapSense touchscreen that displays dose statistics, humidity, and temperature, making it one of the most reliable and user-friendly grinders on the market.", "تُعد مطحنة F64 EVO PRO الخيار الاحترافي الأمثل للمقاهي ذات الإقبال الكثيف، حيث تجمع بين سرعة سلسلة EVO وتصميم يسهل عملية الصيانة. تتميز بشفرات مسطحة مقاس 64 ملم ومروحة تبريد تلقائية للحفاظ على جودة البن خلال ساعات الذروة. يشير مسمى PRO إلى حجرة الطحن القابلة للفصل؛ هذا النظام المبتكر يسمح للمستخدم بفك الجزء العلوي من الشفرات للتنظيف العميق أو الاستبدال دون التأثير على درجة الطحن المحددة مسبقاً. كما تشتمل على شاشة CapSense عالية الدقة تعرض إحصائيات الجرعات، ونسبة الرطوبة، ودرجة الحرارة، مما يجعلها واحدة من أكثر المطاحن موثوقية وسهولة في الاستخدام.", 
+            
+            6000.00m, 1633.76m, new[] { "Glossy Black" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Varnishing", "standard"},
+                {"Doses adjustment", "in seconds"},
+                {"Power", "350 Watt"},
+                {"Burrs diameter", "Ø 64 Mm / Burrs type: flat"},
+                {"Burrs Speed", "1350/Min (50 Hz) – 1550/Min (60 Hz)"},
+                {"Coffee bean hopper capacity", "1.5 Kg"},
+                {"Net weight", "13 Kg"},
+                {"Dimensions", "230x615x270 Mm"}
+            }),
+            ("F64 Evo", "F64 إيفو", "The F64 EVO is an electronic grinder equipped with 64mm flat burrs and a built-in cooling fan that activates automatically to prevent beans from overheating. It features a fast, intuitive CapSense touchscreen. The F64 EVO PRO version features a Detachable Grinding Chamber, allowing baristas to remove the burrs for cleaning without losing their grind setting—a massive time-saver for busy coffee shops.", "تُعد F64 EVO مطحنة إلكترونية أسطورية مزودة بشفرات مسطحة مقاس 64 ملم ومروحة تبريد مدمجة تعمل تلقائياً لمنع ارتفاع حرارة البن. وتتميز بشاشة CapSense سريعة تعمل باللمس. أما إصدار F64 EVO PRO، فيتميز بـ حجرة طحن قابلة للفصل، مما يسمح بفك الشفرات للتنظيف دون فقدان إعدادات الطحن السابقة، وهو ما يوفر وقتاً كبيراً للمقاهي المزدحمة.", 
+            
+            5200.00m, 1415.93m, new[] { "Matt Black", "Glossy Black" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Varnishing", "standard"},
+                {"Doses adjustment", "in seconds"},
+                {"Power", "450 Watt"},
+                {"Burrs diameter", "Ø 64 Mm / Burrs type: Flat"},
+                {"Burrs Speed", "1350/Min (50 Hz) – 1550/Min (60 Hz)"},
+                {"Coffee bean hopper capacity", "1.5 kg"},
+                {"Net weight", "13 Kg"},
+                {"Dimensions", "230x615x270 mm"},
+                {"Recommended consumption", "Up to 3 kg per day"}
+            }),
+            ("ALLGROUND Sense", "ALLGROUND سينس", "The AllGround Sense is a premium Grind-by-Weight grinder that features a high-precision scale built into the portafilter fork. This allows users to set a target weight (in grams) rather than time, ensuring absolute consistency for every shot. It retains the 64mm Dark-T coated burrs and the iconic color-coded touchscreen for Espresso, Moka, and Filter, but adds the luxury of real-time dose weighing to eliminate the need for external scales.", "تُعد AllGround Sense النسخة الأكثر تطوراً في سلسلة AllGround، حيث تضيف تقنية الطحن بالوزن عبر ميزان عالي الدقة مدمج في حامل البورتافلتر. يتيح ذلك للمستخدم تحديد وزن محدد (بالجرامات) بدلاً من الوقت، مما يضمن دقة متناهية في كل جرعة. تحتفظ المطحنة بشفرات Dark-T مقاس 64 ملم وشاشة اللمس الملونة (للإسبريسو، والموكا، والفلتر)، لكنها تضيف ميزة وزن الجرعة في الوقت الفعلي لتغنيك عن استخدام الموازين الخارجية.", 
+            3560.00m, 969.37m, new[] { "Matt Black", "White" }, new() {
+                {"Burrs", "64 mm flat Dark-T® coated steel burrs—titaniumaluminum-carbon-nitrogen blend"},
+                {"Motor & Speed", "250 W; spinning at ~1,400 RPM (50 Hz) and ~1,600 RPM (60 Hz)"},
+                {"Integrated Scale (Grind-by-Weight)", "Load-cell inside the fork, accurate dosing in real time (grams); touch display color-changes to show Espresso/Moka/Filter modes"},
+                {"Adjustments", "Continuous micrometric ring-nut grind adjustment at ~10 µm per step"},
+                {"Hopper Capacity", "250 g (.5 lbs) capacity"},
+                {"Throughput & Retention", "Great for home use up to ~1 kg/day"},
+                {"Size & Weight", "169 × 240 × 460 mm (6.6″ × 9.4″ × 18.1″); ≈9 kg (20 lbs)"},
+                {"Display & Modes", "IPS touchscreen; color-coded for each mode with icons and timed dosing"},
+                {"Maintenance", "Tool-free removable top burr chamber and collar makes cleaning"}
+            }),
+            ("ALLGROUND", "ALLGROUND", "The AllGround is a versatile, high-tech grinder that allows users to switch easily between Espresso, Moka, and Filter settings using a rotating ring nut. It features 64mm flat burrs with a specialized Dark-T (Titanium/Aluminum) coating, which lasts up to 5 times longer than standard burrs. The intuitive touchscreen display changes color based on the selected mode (Red for Espresso, Blue for Moka, Green for Filter), making it incredibly user-friendly.", "تُعتبر AllGround المطحنة الشاملة والأكثر تنوعاً، حيث تتيح للمستخدمين التنقل بسهولة بين إعدادات الإسبريسو، والموكا، والفلتر عبر حلقة دوارة. تتميز بشفرات مسطحة مقاس 64 ملم مع طلاء Dark-T المتطور (تيتانيوم وألمنيوم)، والذي يدوم لفترة أطول بـ 5 مرات من الشفرات العادية. تتغير ألوان شاشة اللمس بناءً على الوضع المختار (الأحمر للإسبريسو، الأزرق للموكا، الأخضر للفلتر)، مما يجعلها سهلة الاستخدام للغاية.", 
+            2950.00m, 803.27m, new[] { "Matt Black" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Doses adjustment", "in seconds"},
+                {"Power", "250 Watt"},
+                {"Burrs type", "Flat with Titanium coating"},
+                {"Burrs diameter", "Ø 64 mm"},
+                {"Burrs Speed", "1400/min (50 Hz) – 1600/min (60 Hz)"},
+                {"coffee bean hopper capacity", "250g"},
+                {"Net weight", "9 Kg"},
+                {"Dimensions", "169x440x240 mm"},
+                {"Recommended consumption", "Up to 1 kg per day"}
+            }),
+            ("F4 Filter", "F4 فلتر", "The F4 Filter is a specialized electronic grinder tailored for filter coffee enthusiasts. Unlike standard espresso models, it features a dedicated ground coffee container (100g) and an intuitive LCD touchscreen. It allows for 3 programmable dose settings and features 64mm flat burrs designed to produce a uniform grind size with fewer fines, ensuring a clean and aromatic cup of filter coffee.", "مطحنة F4 Filter هي نسخة إلكترونية متخصصة مصممة لعشاق قهوة الفلتر (الترشيح). بخلاف موديلات الإسبريسو، تأتي هذه المطحنة مع حاوية بن مطحون مخصصة (100 جرام) وشاشة LCD تعمل باللمس. تسمح ببرمجة 3 إعدادات للجرعات، وتستخدم شفرات مسطحة مقاس 64 ملم مصممة لإنتاج طحنة متناسقة تضمن كوباً صافياً وعطرياً من القهوة المقطرة.", 
+            
+            2400.00m, 653.51m, new[] { "Red" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Doses adjustment", "in seconds – 3 memory programs"},
+                {"Power", "250 Watt"},
+                {"Burrs type", "Flat"},
+                {"Burrs diameter", "Ø 64 mm"},
+                {"Burrs Speed", "1350 /min (50 Hz) – 1550/min (60 Hz)"},
+                {"coffee bean hopper capacity", "250g"},
+                {"Ground coffee container capacity", "100 g"},
+                {"Net weight", "8 Kg"},
+                {"Dimensions", "169x473x240 mm"},
+                {"Recommended consumption", "Up to 1 kg per day"}
+            }),
+            ("F5 A", "F5 A", "The F5 A is a professional-grade automatic grinder featuring large 64mm flat steel burrs and a high-capacity 1.5kg hopper. The stands for Automatic, meaning the grinder uses a microswitch to sense when the doser is low and automatically grinds more coffee to keep it full. It is known for its durability, consistency, and a powerful 350W motor that can handle constant daily use without overheating.", "تُعد F5 A مطحنة إسبريسو احترافية مصممة للمقاهي ذات الإقبال العالي. تتميز بشفرات مسطحة كبيرة مقاس 64 ملم وخزان حبوب بسعة 1.5 كجم. يشير حرف إلى أنها أوتوماتيكية، حيث تستخدم مفتاحاً دقيقاً يستشعر انخفاض مستوى القهوة في الموزع ويقوم بالطحن تلقائياً لإبقائه ممتلئاً. تشتهر بمتانتها، وتناسق طحنها، ومحركها القوي بقدرة 350 واط الذي يتحمل الاستخدام المستمر دون ارتفاع الحرارة.", 
+            3000.00m, 816.88m, new[] { "Matt Black", "White", "Red" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Power", "350 watt"},
+                {"Burrs diameter", "Ø 64 mm / Burrs type: flat"},
+                {"Burrs Speed", "1350/min (50 Hz) - 1550/min (60 Hz)"},
+                {"Dispenser unit adjustment for shots", "10 - 5.5 g"},
+                {"Coffee bean hopper capacity", "1.5 kg"},
+                {"Doser capacity", "250 g"},
+                {"Net weight", "14 kg"},
+                {"Dimensions", "230x615x270 mm"},
+                {"Recommended consumption", "Up to 2 kg per day"}
+            }),
+            ("F4 A", "F4 A", "The Fiorenzato F4 A is a compact professional doser grinder featuring 58mm flat steel burrs. The model indicates it is Automatic, meaning it has a microswitch that automatically refills the doser chamber as coffee is used. It is designed for durability and space-saving, offering stepless adjustment to fine-tune the grind for a perfect espresso shot.", "تُعد فيورينزاتو F4 A مطحنة احترافية مدمجة بنظام الدوسر (الموزع)، مزودة بشفرات مسطحة مقاس 58 ملم. يشير حرف  إلى أنها أوتوماتيكية، حيث تحتوي على مفتاح دقيق يقوم بإعادة ملء حجرة التوزيع تلقائياً عند استخدام القهوة. صُممت لتكون متينة وموفرة للمساحة، مع نظام تعديل دقيق جداً (Stepless) لضبط الطحنة للحصول على كوب إسبريسو مثالي.", 
+            2400.00m, 653.51m, new[] { "Matt Black", "White", "Red" }, new() {
+                {"Ring nut micrometric grinding adjustment", "continuous"},
+                {"Varnishing", "standard"},
+                {"Fork", "standard"},
+                {"Power", "250 watt"},
+                {"Burrs diameter", "Ø 58 mm / Burrs type: flat"},
+                {"Burrs Speed", "1400/min (50 Hz) - 1600/min (60 Hz)"},
+                {"Dispenser unit adjustment for shots", "10 - 5.5 g"},
+                {"Coffee bean hopper capacity", "500 g"},
+                {"Doser capacity", "200 g"},
+                {"Net weight", "10 kg"},
+                {"Dimensions", "169x473x240 mm"},
+                {"Recommended consumption", "Up to 1 kg per day"}
+            }),
+            ("F5 D", "F5 D", "The Fiorenzato F5 D is a heavy-duty professional shop grinder equipped with 64mm flat steel burrs. Unlike espresso grinders that dose into a portafilter, the D (Droggheria) model features a bag holder clip, making it perfect for coffee shops that sell pre-ground beans to customers. It features a continuous micrometric adjustment ring for high precision and a powerful 350W motor that prevents overheating during high-volume use.", "مطحنة فيورينزاتو F5 (المعروفة بـ Droggheria) هي مطحنة احترافية مخصصة للمتاجر، مزودة بشفرات فولاذية مسطحة مقاس 64 ملم. على عكس مطاحن الإسبريسو التقليدية، يتميز موديل  بمشبك لتثبيت الأكياس، مما يجعلها مثالية للمقاهي التي تبيع البن المطحون للزبائن. تحتوي على حلقة تعديل ميكرومترية مستمرة لدقة عالية، ومحرك قوي بقدرة 350 واط يمنع ارتفاع حرارة البن أثناء الطحن بكميات كبيرة.", 
+            
+            2700.00m, 735.19m, new[] { "Matt Black", "White" }, new() {
+                {"Burrs", "64 mm flat steel burrs"},
+                {"Motor", "350 W; approximately 1,350 RPM at 50 Hz / 1,550 RPM at 60 Hz"},
+                {"Bean Hopper", "Holds about 1.5 kg of beans"},
+                {"Doser Capacity", "Built-in doser for measured portion delivery; bag holder/clamp included"},
+                {"Dimensions", "230 × 615 × 270 mm (9″ × 24″ × 10.6″)"},
+                {"Weight", "Around 13 kg"},
+                {"Construction", "Solid die-cast metal body; low heat generation to protect aroma and flavour"},
+                {"Throughput", "Recommended for low-to-medium volume (up to ~2 kg coffee/day)"}
+            }),
+            ("PIETRO", "بيترو", "The Pietro is a high-end manual grinder featuring 58mm vertical flat burrs made of M390 steel. It is designed with a unique retractable lever and an airtight grounds container to preserve aroma. It comes in two versions: B-Modal (all-purpose for espresso and filter) and M-Modal (optimized for high-clarity filter brewing). Its ergonomic, non-slip base makes it a standout for home enthusiasts who want electric-quality grinding without a motor.", "تُعد بيترو مطحنة يدوية فاخرة من فيورينزاتو، وهي أول مطحنة يدوية تستخدم شفرات مسطحة عمودية مقاس 58 ملم مصنوعة من فولاذ M390. تتميز بتصميم مبتكر يشمل ذراعاً قابلاً للطي وحاوية بن محكمة الإغلاق للحفاظ على النكهة. تتوفر بإصدارين: B-Modal (شامل للإسبريسو والفلتر) و M-Modal (مخصص لقهوة الفلتر). بفضل قاعدتها غير القابلة للانزلاق وتصميمها المريح، توفر جودة طحن تضاهي المطاحن الكهربائية.", 1575.00m, 428.86m, new[] { "Matt Black", "White" }, new() {
+                {"Type of grind", "Espresso - Moka - Filter"},
+                {"Max capacity loading hopper", "60g"},
+                {"Max capacity ground coffee container", "70g"},
+                {"Size", "225 x 115 x 80 mm"},
+                {"Weight", "1600 g"},
+                {"Burrs Diameter", "Ø 58 mm"}
+            })
+        };
+
+        var newProducts = new List<Product>();
+
+        foreach (var g in grinders)
+        {
+            // Explicitly create a new Dictionary to ensure EF Core properly persists specifications
+            var specifications = new Dictionary<string, string>(g.Specs);
+
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = category.Id,
+                BrandId = brand.Id,
+                Slug = g.Name.ToLower().Replace(" ", "-").Replace("(", "").Replace(")", "").Replace(",", "").Replace("/", "-").Replace("®", "").Replace(":", ""),
+                IsActive = true,
+                Translations = new List<ProductTranslation>
+                {
+                    new() { LanguageCode = "en", Name = g.Name, Description = g.Description },
+                    new() { LanguageCode = "ar", Name = g.NameAr, Description = g.DescriptionAr }
+                },
+                EquipmentProfile = new ProductEquipmentProfile
+                {
+                    Specifications = specifications
+                }
+            };
+
+            var variants = new List<ProductVariant>();
+            foreach (var col in g.Colors)
+            {
+                var colorVal = await GetOrAddColorFallback(col);
+                var variant = new ProductVariant
+                {
+                    Id = Guid.NewGuid(),
+                    Sku = $"{product.Slug}-{col.Replace(" ", "")}".ToUpper(),
+                    Price = g.PriceAED,
+                    StockQuantity = 10,
+                    Options = new List<ProductVariantOption>
+                    {
+                        new() { ProductAttributeValueId = colorVal.Id }
+                    },
+                    Prices = new List<ProductVariantPrice>
+                    {
+                        new() { Currency = Currency.USD, Price = g.PriceUSD },
+                        new() { Currency = Currency.AED, Price = g.PriceAED }
+                    }
+                };
+                variants.Add(variant);
+            }
+            product.Variants = variants;
+            newProducts.Add(product);
+        }
+
+        await context.Products.AddRangeAsync(newProducts);
+        await context.SaveChangesAsync();
+        logger.LogInformation("Fiorenzato Grinders seeded successfully.");
     }
 }

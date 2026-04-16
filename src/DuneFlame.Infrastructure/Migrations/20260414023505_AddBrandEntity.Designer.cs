@@ -3,6 +3,7 @@ using System;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DuneFlame.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260414023505_AddBrandEntity")]
+    partial class AddBrandEntity
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -920,29 +923,6 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.ToTable("ProductCoffeeProfiles");
                 });
 
-            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductEquipmentProfile", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductId")
-                        .IsUnique();
-
-                    b.ToTable("ProductEquipmentProfiles");
-                });
-
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductImage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1723,34 +1703,6 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Navigation("Product");
                 });
 
-            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductEquipmentProfile", b =>
-                {
-                    b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
-                        .WithOne("EquipmentProfile")
-                        .HasForeignKey("DuneFlame.Domain.Entities.ProductEquipmentProfile", "ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.OwnsOne("System.Collections.Generic.Dictionary<string, string>", "Specifications", b1 =>
-                        {
-                            b1.Property<Guid>("ProductEquipmentProfileId");
-
-                            b1.HasKey("ProductEquipmentProfileId");
-
-                            b1.ToTable("ProductEquipmentProfiles");
-
-                            b1.ToJson("Specifications");
-
-                            b1.WithOwner()
-                                .HasForeignKey("ProductEquipmentProfileId");
-                        });
-
-                    b.Navigation("Product");
-
-                    b.Navigation("Specifications")
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductImage", b =>
                 {
                     b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
@@ -2020,8 +1972,6 @@ namespace DuneFlame.Infrastructure.Migrations
             modelBuilder.Entity("DuneFlame.Domain.Entities.Product", b =>
                 {
                     b.Navigation("CoffeeProfile");
-
-                    b.Navigation("EquipmentProfile");
 
                     b.Navigation("Images");
 

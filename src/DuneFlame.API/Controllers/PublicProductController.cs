@@ -22,6 +22,7 @@ public class PublicProductController(IProductService productService) : Controlle
         [FromQuery] Guid? categoryId = null,
         [FromQuery] decimal? minPrice = null,
         [FromQuery] decimal? maxPrice = null,
+        [FromQuery] Guid? brandId = null,
         [FromQuery] Guid[]? roastLevelIds = null,
         [FromQuery] Guid[]? originIds = null)
     {
@@ -35,6 +36,7 @@ public class PublicProductController(IProductService productService) : Controlle
                 categoryId: categoryId,
                 minPrice: minPrice,
                 maxPrice: maxPrice,
+                brandId: brandId,
                 roastLevelIds: roastLevelIds,
                 originIds: originIds);
 

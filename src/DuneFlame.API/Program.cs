@@ -135,6 +135,7 @@ builder.Services.AddMediatR(config => {
     config.RegisterServicesFromAssembly(typeof(UpdateProductCommandHandler).Assembly);
 });
 builder.Services.AddScoped<IProductUpdateStrategy, CoffeeProductUpdateStrategy>();
+builder.Services.AddScoped<IProductUpdateStrategy, EquipmentProductUpdateStrategy>();
 
 builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
 

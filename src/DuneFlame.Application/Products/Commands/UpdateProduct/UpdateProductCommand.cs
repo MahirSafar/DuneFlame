@@ -11,6 +11,7 @@ public record UpdateProductCommand : IRequest<bool>
     public string Name { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public Guid CategoryId { get; init; }
+    public Guid? BrandId { get; init; }
     public bool IsActive { get; init; }
     
     // Base properties
@@ -25,6 +26,11 @@ public record UpdateProductCommand : IRequest<bool>
     public List<Guid> RoastLevelIds { get; init; } = new();
     public List<Guid> GrindTypeIds { get; init; } = new();
     public List<UpdateFlavourNoteDto> FlavourNotes { get; init; } = new();
+
+    // Accepts JSON string from [FromForm] for robust binding
+    public string? SpecificationsJson { get; init; }
+    // Not bound directly from form, set in handler after deserialization
+    public Dictionary<string, string>? Specifications { get; set; }
 }
 
 public record UpdateProductTranslationDto(

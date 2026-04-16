@@ -47,6 +47,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ProductAttribute> ProductAttributes { get; set; }
     public DbSet<ProductAttributeValue> ProductAttributeValues { get; set; }
     public DbSet<ProductVariantOption> ProductVariantOptions { get; set; }
+    public DbSet<ProductEquipmentProfile> ProductEquipmentProfiles { get; set; }
+    public DbSet<Brand> Brands { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -260,6 +262,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .WithOne(p => p.CoffeeProfile)
             .HasForeignKey<ProductCoffeeProfile>(cp => cp.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProductEquipmentProfile>()
+            .HasIndex(ep => ep.ProductId)
+            .IsUnique();
+
+        modelBuilder.Entity<ProductEquipmentProfile>()
+            .HasOne(ep => ep.Product)
+            .WithOne(p => p.EquipmentProfile)
+            .HasForeignKey<ProductEquipmentProfile>(ep => ep.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProductEquipmentProfile>()
+            .Property(e => e.Specifications)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new Dictionary<string, string>()
+            )
+            .Metadata.SetValueComparer(
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<Dictionary<string, string>>(
+                    (c1, c2) => c1 != null && c2 != null && c1.Count == c2.Count && !c1.Except(c2).Any(),
+                    c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.Key.GetHashCode(), v.Value.GetHashCode())),
+                    c => c.ToDictionary(kv => kv.Key, kv => kv.Value)
+                )
+            );
 
         modelBuilder.Entity<ProductVariant>()
             .HasIndex(v => v.Sku)

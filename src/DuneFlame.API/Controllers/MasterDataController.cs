@@ -155,6 +155,27 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
         }
     }
 
+    [HttpGet("brands")]
+    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    public async Task<ActionResult<List<BrandDto>>> GetBrands()
+    {
+        try
+        {
+            var brands = await _context.Brands
+                .AsNoTracking()
+                .Where(b => b.IsActive)
+                .OrderBy(b => b.Name)
+                .Select(b => new BrandDto(b.Id, b.Name))
+                .ToListAsync();
+
+            return Ok(brands);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("all")]
     [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")] // Cache dilə görə dəyişir
     public async Task<ActionResult<MasterDataCollectionDto>> GetAllMasterData()
@@ -212,15 +233,23 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 .Select(o => new OriginDto(o.Id, o.Name))
                 .ToListAsync();
 
+            var brands = await _context.Brands
+                .AsNoTracking()
+                .Where(b => b.IsActive)
+                .OrderBy(b => b.Name)
+                .Select(b => new BrandDto(b.Id, b.Name))
+                .ToListAsync();
+
             var masterData = new MasterDataCollectionDto(
                 Attributes: attributes,
                 RoastLevels: roastLevels,
-                                GrindTypes: grindTypes,
-                                Categories: categoryDtos,
-                                Origins: origins
-                            );
+                GrindTypes: grindTypes,
+                Categories: categoryDtos,
+                Origins: origins,
+                Brands: brands
+            );
 
-                            return Ok(masterData);
+            return Ok(masterData);
                         }
                         catch (Exception ex)
                         {
@@ -261,6 +290,11 @@ public record CategoryDto(Guid Id, string Name, string Slug, bool IsCoffeeCatego
 public record OriginDto(Guid Id, string Name);
 
 /// <summary>
+/// DTO for Brand master data
+/// </summary>
+public record BrandDto(Guid Id, string Name);
+
+/// <summary>
 /// Combined DTO for all master data - used by /api/v1/master-data/all endpoint
 /// </summary>
 public record MasterDataCollectionDto(
@@ -268,5 +302,6 @@ public record MasterDataCollectionDto(
     List<RoastLevelDto> RoastLevels,
     List<GrindTypeDto> GrindTypes,
     List<CategoryDto> Categories,
-    List<OriginDto> Origins
+    List<OriginDto> Origins,
+    List<BrandDto> Brands
 );
