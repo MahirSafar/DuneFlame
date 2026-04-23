@@ -131,6 +131,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             .HasForeignKey(ci => ci.ProductVariantId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Category self-referencing hierarchy (non-nullable ParentCategoryId)
+        // Root category uses Guid.Empty as sentinel — DB FK is DEFERRABLE INITIALLY DEFERRED (patched in migration).
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.HasIndex(c => c.Slug).IsUnique();
+            entity.HasIndex(c => c.ParentCategoryId);
+
+            entity.HasMany(c => c.Children)
+                  .WithOne(c => c.Parent)
+                  .HasForeignKey(c => c.ParentCategoryId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
         // Product - Category Relationship (1-to-Many)
         modelBuilder.Entity<Product>()
             .HasOne(p => p.Category)

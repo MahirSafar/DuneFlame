@@ -9,6 +9,30 @@ namespace DuneFlame.Infrastructure.Persistence;
 
 public static class DbInitializer
 {
+    /// <summary>
+    /// Wraps SaveChangesAsync in a try-catch for DbUpdateException to handle
+    /// concurrent container startup race conditions (e.g., Cloud Run).
+    /// If two instances pass the AnyAsync check simultaneously and both attempt
+    /// to insert the same master data, the loser of the race will catch the
+    /// duplicate-key violation, log a warning, and continue — because the data
+    /// was already committed by the winning instance.
+    /// </summary>
+    private static async Task TrySaveAsync(AppDbContext context, ILogger logger, string entityLabel)
+    {
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("duplicate key") == true
+                                        || ex.InnerException?.Message.Contains("unique constraint") == true
+                                        || ex.InnerException?.Message.Contains("23505") == true)
+        {
+            logger.LogWarning("Concurrent seed detected for {Entity} — duplicate key ignored. Data was already committed by another instance.", entityLabel);
+            // Detach all tracked entries so the context is usable again
+            context.ChangeTracker.Clear();
+        }
+    }
+
     public static async Task InitializeAsync(IServiceProvider serviceProvider)
     {
         using var scope = serviceProvider.CreateScope();
@@ -19,14 +43,16 @@ public static class DbInitializer
 
         try
         {
-            // Apply migrations or ensure database is created
-            if (context.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+            // Apply migrations or ensure database is created.
+            // IsRelational() covers all relational providers (Postgres, SQL Server, SQLite, etc.)
+            // and correctly excludes InMemory, which does not support migrations.
+            if (context.Database.IsRelational())
             {
-                await context.Database.EnsureCreatedAsync();
+                await context.Database.MigrateAsync();
             }
             else
             {
-                await context.Database.MigrateAsync();
+                await context.Database.EnsureCreatedAsync();
             }
 
             // 1. Seed Roles
@@ -50,6 +76,7 @@ public static class DbInitializer
             // 6. Seed Products
             await SeedProductsAsync(context, logger);
             await SeedFiorenzatoGrindersAsync(context, logger);
+            await SeedAccessoriesAsync(context, logger);
 
             // 7. Seed CMS Content (Sliders & About)
             await SeedCmsContentAsync(context, logger);
@@ -123,7 +150,7 @@ public static class DbInitializer
 
         logger.LogInformation("Seeding Settings...");
         await context.AppSettings.AddAsync(new AppSetting { Key = "RewardPercentage", Value = "5" });
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "AppSettings");
     }
 
     private static async Task SeedOriginsAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -145,7 +172,7 @@ public static class DbInitializer
         };
 
         await context.Origins.AddRangeAsync(origins);
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "Origins");
     }
 
     private static async Task SeedCategoriesAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -155,68 +182,99 @@ public static class DbInitializer
             return;
         }
 
-        logger.LogInformation("Seeding Categories with translations...");
-        var categories = new List<Category>
+        logger.LogInformation("Seeding Category hierarchy (Master Root / BFS wave pattern)...");
+
+        // WAVE 0: Master Root — ParentCategoryId = Guid.Empty (sentinel, no DB row)
+        // Fixed deterministic Id so children can reference it immediately after SaveChanges.
+        var rootId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        var root = new Category
         {
-            new()
-            {
-                Slug = "coffee-beans",
-                Translations = new List<CategoryTranslation>
-                {
-                    new() { LanguageCode = "en", Name = "Coffee Beans" },
-                    new() { LanguageCode = "ar", Name = "حبوب القهوة" }
-                }
-            },
-            new()
-            {
-                Slug = "coffee-machines",
-                Translations = new List<CategoryTranslation>
-                {
-                    new() { LanguageCode = "en", Name = "Coffee Machines" },
-                    new() { LanguageCode = "ar", Name = "آلات القهوة" }
-                }
-            },
-            new()
-            {
-                Slug = "cups-and-mugs",
-                Translations = new List<CategoryTranslation>
-                {
-                    new() { LanguageCode = "en", Name = "Cups & Mugs" },
-                    new() { LanguageCode = "ar", Name = "أكواب وأباريق" }
-                }
-            },
-            new()
-            {
-                Slug = "coffee-accessories",
-                Translations = new List<CategoryTranslation>
-                {
-                    new() { LanguageCode = "en", Name = "Coffee Accessories" },
-                    new() { LanguageCode = "ar", Name = "ملحقات القهوة" }
-                }
-            },
-            new()
-            {
-                Slug = "coffee-filters",
-                Translations = new List<CategoryTranslation>
-                {
-                    new() { LanguageCode = "en", Name = "Coffee Filters" },
-                    new() { LanguageCode = "ar", Name = "مرشحات القهوة" }
-                }
-            },
-            new()
-            {
-                Slug = "equipment",
-                Translations = new List<CategoryTranslation>
-                {
-                    new() { LanguageCode = "en", Name = "Equipment" },
-                    new() { LanguageCode = "ar", Name = "معدات" }
-                }
-            }
+            Id = rootId,
+            Slug = "root",
+            IsCoffeeCategory = false,
+            ParentCategoryId = rootId,
+            Translations =
+            [
+                new() { LanguageCode = "en", Name = "All Products" },
+                new() { LanguageCode = "ar", Name = "جميع المنتجات" }
+            ]
         };
 
-        await context.Categories.AddRangeAsync(categories);
-        await context.SaveChangesAsync();
-        logger.LogInformation("Categories with translations seeded successfully.");
+        await context.Categories.AddAsync(root);
+        await TrySaveAsync(context, logger, "Category:root"); // Commit root BEFORE any child references Guid.Empty FK
+
+        // slug → Guid lookup — populated after each wave so children resolve parent Ids instantly
+        var slugToId = new Dictionary<string, Guid> { ["root"] = rootId };
+
+        // Flat tree definition: (Slug, NameEn, NameAr, IsCoffee, ParentSlug)
+        // Ordered top-down — each entry's ParentSlug is always resolved before we reach it.
+        var treeDefinition = new (string Slug, string NameEn, string NameAr, bool IsCoffee, string ParentSlug)[]
+        {
+            // WAVE 1 — L1 children of root
+            ("coffee",              "Coffee",              "قهوة",              true,  "root"),
+            ("equipment",           "Equipment",           "معدات",             false, "root"),
+
+            // WAVE 2a — L2 children of coffee
+            ("whole-beans",         "Whole Beans",         "حبوب كاملة",        true,  "coffee"),
+            ("drip-bags",           "Drip Bags",           "أكياس تقطير",       true,  "coffee"),
+            ("capsules",            "Capsules",            "كبسولات",           true,  "coffee"),
+
+            // WAVE 2b — L2 children of equipment
+            ("coffee-machines",     "Coffee Machines",     "آلات القهوة",       false, "equipment"),
+            ("grinders",            "Grinders",            "مطاحن",             false, "equipment"),
+            ("brewing-accessories", "Brewing Accessories", "ملحقات التحضير",    false, "equipment"),
+
+            // WAVE 3a — L3 children of coffee-machines
+            ("professional-coffee-machines", "Professional Coffee Machines", "آلات قهوة احترافية", false, "coffee-machines"),
+            ("home-coffee-machines",         "Home Coffee Machines",         "آلات قهوة منزلية",  false, "coffee-machines"),
+
+            // WAVE 3b — L3 children of grinders
+            ("professional-coffee-grinders", "Professional Coffee Grinders", "مطاحن احترافية", false, "grinders"),
+            ("home-coffee-grinders",         "Home Coffee Grinders",         "مطاحن منزلية",   false, "grinders"),
+            ("manual-coffee-grinders",       "Manual Coffee Grinders",       "مطاحن يدوية",    false, "grinders"),
+
+            // WAVE 3c — L3 children of brewing-accessories
+            ("brewing-equipment",    "Brewing Equipment",    "معدات التحضير",         false, "brewing-accessories"),
+            ("drinkware-storage",    "Drinkware & Storage",  "أدوات الشرب والتخزين",  false, "brewing-accessories"),
+            ("cleaning-maintenance", "Cleaning Maintenance", "التنظيف والصيانة",      false, "brewing-accessories"),
+        };
+
+        // BFS wave order — each entry is a parent slug whose children form one committed batch.
+        // Parents must be committed before children reference them as FKs.
+        var waveOrder = new[] { "root", "coffee", "equipment", "coffee-machines", "grinders", "brewing-accessories" };
+
+        var byParent = treeDefinition.GroupBy(n => n.ParentSlug)
+                                     .ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var parentSlug in waveOrder)
+        {
+            if (!byParent.TryGetValue(parentSlug, out var wave)) continue;
+
+            var batch = new List<Category>();
+            foreach (var node in wave)
+            {
+                var category = new Category
+                {
+                    Id = Guid.NewGuid(),
+                    Slug = node.Slug,
+                    IsCoffeeCategory = node.IsCoffee,
+                    ParentCategoryId = slugToId[node.ParentSlug],
+                    Translations =
+                    [
+                        new() { LanguageCode = "en", Name = node.NameEn },
+                        new() { LanguageCode = "ar", Name = node.NameAr }
+                    ]
+                };
+                batch.Add(category);
+                slugToId[node.Slug] = category.Id; // register for next wave
+            }
+
+            await context.Categories.AddRangeAsync(batch);
+            await TrySaveAsync(context, logger, $"Categories:wave({parentSlug})"); // Commit each wave before its children are processed
+        }
+
+        logger.LogInformation("Category hierarchy seeded: Root → L1 (2) → L2 (6) → L3 (8). Total: 17 categories.");
     }
 
     private static async Task SeedBrandsAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -227,33 +285,46 @@ public static class DbInitializer
         var brands = new List<Brand>
         {
             new Brand { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), Name = "DuneFlame", Description = "Premium selection of freshly roasted coffees", IsActive = true },
-            new Brand { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), Name = "Oasis Espresso", Description = "Rich and bold espresso blends", IsActive = true },
-            new Brand { Id = Guid.Parse("33333333-3333-3333-3333-333333333333"), Name = "Desert Brews", Description = "Classic and satisfying daily brews", IsActive = true },
-            new Brand { Id = Guid.Parse("44444444-4444-4444-4444-444444444444"), Name = "Fiorenzato", Description = "Professional coffee grinders", IsActive = true }
+            new Brand { Id = Guid.Parse("44444444-4444-4444-4444-444444444444"), Name = "Fiorenzato", Description = "Professional coffee grinders", IsActive = true },
+            new Brand { Id = Guid.Parse("55555555-5555-5555-5555-555555555555"), Name = "MHW-3BOMBER", Description = "Professional coffee accessories and equipment", IsActive = true }
         };
 
         await context.Brands.AddRangeAsync(brands);
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "Brands");
         logger.LogInformation("Brands seeded successfully.");
     }
 
     private static async Task SeedProductsAsync(AppDbContext context, ILogger<AppDbContext> logger)
     {
-        if (await context.Products.AnyAsync())
+        // Granular idempotency: check FlavourNotes independently of Products so that
+        // stale DB state (FlavourNotes committed but Products not, or vice-versa) is handled.
+        if (await context.Products.AnyAsync(p => p.BrandId != Guid.Parse("44444444-4444-4444-4444-444444444444") && p.BrandId != Guid.Parse("55555555-5555-5555-5555-555555555555")))
         {
+            logger.LogInformation("Coffee products already seeded. Skipping SeedProductsAsync.");
+            return;
+        }
+
+        // Secondary guard: if FlavourNotes already exist, a previous instance seeded the
+        // products graph and then crashed before the Products check could pass. Skip to avoid
+        // duplicate FlavourNoteTranslation violations.
+        if (await context.Set<FlavourNote>().AnyAsync())
+        {
+            logger.LogInformation("FlavourNotes already exist (partial prior seed). Skipping SeedProductsAsync.");
             return;
         }
 
         logger.LogInformation("Seeding Products with Variant Architecture...");
 
         // Ensure Prerequisite Data Exists
-        var coffeeBeansCategory = await context.Categories.FirstOrDefaultAsync(c => c.Slug == "coffee-beans");
-        if (coffeeBeansCategory == null) return;
+        var coffeeBeansCategory = await context.Categories.FirstOrDefaultAsync(c => c.Slug == "whole-beans")
+            ?? throw new InvalidOperationException("Seeding prerequisite missing: Category with slug 'whole-beans' was not found. Ensure SeedCategoriesAsync completed successfully before SeedProductsAsync.");
 
         var brazilOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Brazil");
         var ethiopiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Ethiopia");
         var colombiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Colombia");
         var malaysiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Malaysia");
+
+        // --- Granular get-or-create guards for all master data ---
 
         var mediumRoast = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Medium");
         if (mediumRoast == null) { mediumRoast = new RoastLevelEntity { Name = "Medium" }; context.Add(mediumRoast); }
@@ -264,14 +335,49 @@ public static class DbInitializer
         var wholeBean = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Whole Bean");
         if (wholeBean == null) { wholeBean = new GrindType { Name = "Whole Bean" }; context.Add(wholeBean); }
 
-        var weightAttribute = new ProductAttribute { Id = Guid.NewGuid(), Name = "Weight" };
-        var weight250g = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = weightAttribute.Id, Value = "250g" };
-        var weight1kg = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = weightAttribute.Id, Value = "1kg" };
+        // Flush RoastLevels and GrindTypes before building the product graph so they
+        // have stable DB-assigned IDs that EF Core can use for the join tables.
+        await TrySaveAsync(context, logger, "RoastLevels/GrindTypes");
 
-        context.ProductAttributes.Add(weightAttribute);
-        context.ProductAttributeValues.AddRange(weight250g, weight1kg);
+        // Re-query after potential concurrent save so we hold the committed rows.
+        mediumRoast = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Medium") ?? mediumRoast;
+        lightRoast  = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Light")  ?? lightRoast;
+        wholeBean   = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Whole Bean")    ?? wholeBean;
 
-        await context.SaveChangesAsync();
+        // Get-or-create Weight attribute and its values to prevent duplicate inserts on retry
+        var weightAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Weight");
+        if (weightAttribute == null)
+        {
+            weightAttribute = new ProductAttribute { Id = Guid.NewGuid(), Name = "Weight" };
+            context.ProductAttributes.Add(weightAttribute);
+            await TrySaveAsync(context, logger, "ProductAttribute:Weight");
+            // Re-query in case the concurrent winner committed the row
+            weightAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Weight") ?? weightAttribute;
+        }
+
+        var weight250g = await context.ProductAttributeValues
+            .FirstOrDefaultAsync(v => v.ProductAttributeId == weightAttribute.Id && v.Value == "250g");
+        if (weight250g == null)
+        {
+            weight250g = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = weightAttribute.Id, Value = "250g" };
+            context.ProductAttributeValues.Add(weight250g);
+        }
+
+        var weight1kg = await context.ProductAttributeValues
+            .FirstOrDefaultAsync(v => v.ProductAttributeId == weightAttribute.Id && v.Value == "1kg");
+        if (weight1kg == null)
+        {
+            weight1kg = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = weightAttribute.Id, Value = "1kg" };
+            context.ProductAttributeValues.Add(weight1kg);
+        }
+
+        await TrySaveAsync(context, logger, "ProductAttributeValues:Weight");
+
+        // Re-query attribute values after potential concurrent save
+        weight250g = await context.ProductAttributeValues
+            .FirstOrDefaultAsync(v => v.ProductAttributeId == weightAttribute.Id && v.Value == "250g") ?? weight250g;
+        weight1kg = await context.ProductAttributeValues
+            .FirstOrDefaultAsync(v => v.ProductAttributeId == weightAttribute.Id && v.Value == "1kg") ?? weight1kg;
 
         var products = new List<Product>
         {
@@ -329,10 +435,6 @@ public static class DbInitializer
                 {
                     new ProductVariant { Sku = "brazil-lenis-250g", Price = 56.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 56.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 15.25m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
                     new ProductVariant { Sku = "brazil-lenis-1kg", Price = 188.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 188.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 51.18m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
-                },
-                Images = new List<ProductImage>
-                {
-                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/a3e09dc0-1ec5-4ad3-8cff-d38eed9676ae_Brazil Lençois.jpg.jpeg", IsMain = true }
                 }
             },
             // 2. Ethiopia Guji Hambela
@@ -395,10 +497,6 @@ public static class DbInitializer
                 {
                     new ProductVariant { Sku = "ethiopia-guji-hambela-250g", Price = 63.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 63.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 17.15m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
                     new ProductVariant { Sku = "ethiopia-guji-hambela-1kg", Price = 214.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 214.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 58.26m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
-                },
-                Images = new List<ProductImage>
-                {
-                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/14fd206a-effe-437e-a05a-39cb55cec021_Ethiopia Hambela.jpg.jpeg", IsMain = true }
                 }
             },
             // 3. Tutti Frutti
@@ -454,10 +552,6 @@ public static class DbInitializer
                 Variants = new List<ProductVariant>
                 {
                     new ProductVariant { Sku = "tutti-frutti-250g", Price = 169.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 169.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 46.01m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
-                },
-                Images = new List<ProductImage>
-                {
-                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/e13113ed-f855-49af-af53-5ce55269c56b_Tutti Frutti.jpg.jpeg", IsMain = true }
                 }
             },
             // 4. Dokha
@@ -513,22 +607,198 @@ public static class DbInitializer
                 Variants = new List<ProductVariant>
                 {
                     new ProductVariant { Sku = "dokha-250g", Price = 162.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 162.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 44.10m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
-                },
-                Images = new List<ProductImage>
-                {
-                    new ProductImage { ImageUrl = "https://storage.googleapis.com/duneflame-images/products/eee4a01f-deb2-4490-a194-9f5ae7642ce3_Dokha.jpg.jpeg", IsMain = true }
                 }
             }
         };
 
         await context.Products.AddRangeAsync(products);
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "Products+FlavourNotes");
 
         logger.LogInformation("Products with Variant Architecture seeded successfully.");
     }
 
 
 
+
+    private static async Task SeedAccessoriesAsync(AppDbContext context, ILogger<AppDbContext> logger)
+    {
+        var mhwBrand = await context.Brands.FirstOrDefaultAsync(b => b.Name.Contains("MHW"));
+        if (mhwBrand == null)
+        {
+            mhwBrand = new Brand { Id = Guid.NewGuid(), Name = "MHW-3BOMBER", Description = "Professional coffee accessories and equipment", IsActive = true };
+            context.Brands.Add(mhwBrand);
+            await TrySaveAsync(context, logger, "MHW Brand");
+            mhwBrand = await context.Brands.FirstOrDefaultAsync(b => b.Name.Contains("MHW")) ?? mhwBrand;
+        }
+
+        if (await context.Products.AnyAsync(p => p.BrandId == mhwBrand.Id))
+        {
+            logger.LogInformation("MHW accessory products already seeded. Skipping SeedAccessoriesAsync.");
+            return;
+        }
+
+        logger.LogInformation("Seeding MHW Accessories...");
+
+        var brewingEquipmentCat = await context.Categories
+            .FirstOrDefaultAsync(c => c.Translations.Any(t => t.LanguageCode == "en" && t.Name == "Brewing Equipment"))
+            ?? throw new InvalidOperationException("Seeding prerequisite missing: Category 'Brewing Equipment' not found.");
+
+        var drinkwareStorageCat = await context.Categories
+            .FirstOrDefaultAsync(c => c.Translations.Any(t => t.LanguageCode == "en" && t.Name == "Drinkware & Storage"))
+            ?? throw new InvalidOperationException("Seeding prerequisite missing: Category 'Drinkware & Storage' not found.");
+
+        var cleaningMaintenanceCat = await context.Categories
+            .FirstOrDefaultAsync(c => c.Translations.Any(t => t.LanguageCode == "en" && t.Name == "Cleaning Maintenance"))
+            ?? throw new InvalidOperationException("Seeding prerequisite missing: Category 'Cleaning Maintenance' not found.");
+
+        Category GetCategory(string name) => name switch
+        {
+            "Brewing Equipment"    => brewingEquipmentCat,
+            "Drinkware & Storage" => drinkwareStorageCat,
+            "Cleaning Maintenance" => cleaningMaintenanceCat,
+            _ => throw new InvalidOperationException($"Unknown accessory category: {name}")
+        };
+
+        ProductAttribute? colorAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color");
+
+        async Task<ProductAttributeValue> GetOrCreateColorValue(string colorName)
+        {
+            if (colorAttribute == null)
+            {
+                colorAttribute = new ProductAttribute { Id = Guid.NewGuid(), Name = "Color" };
+                context.ProductAttributes.Add(colorAttribute);
+                await TrySaveAsync(context, logger, "ProductAttribute:Color");
+                colorAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color") ?? colorAttribute;
+            }
+
+            var val = await context.ProductAttributeValues
+                .FirstOrDefaultAsync(v => v.ProductAttributeId == colorAttribute.Id && v.Value == colorName);
+            if (val != null) return val;
+
+            val = new ProductAttributeValue { Id = Guid.NewGuid(), ProductAttributeId = colorAttribute.Id, Value = colorName };
+            context.ProductAttributeValues.Add(val);
+            await TrySaveAsync(context, logger, $"ProductAttributeValue:Color:{colorName}");
+            return await context.ProductAttributeValues
+                .FirstOrDefaultAsync(v => v.ProductAttributeId == colorAttribute.Id && v.Value == colorName) ?? val;
+        }
+
+        // (Name, CategoryName, Variants: (Color, AED, USD)[])
+        // Color = "N/A" means no Color attribute — one default variant.
+        var accessories = new (string Name, string CategoryName, (string Color, decimal AED, decimal USD)[] Variants)[]
+        {
+            ("MHW GT Milk Pitcher-400ml-U-shape spout",                  "Brewing Equipment",    new[] { ("Glossy",        133m,  35.91m) }),
+            ("MHW Milk pitcher 5.0-500ml",                               "Brewing Equipment",    new[] { ("Multicolor",    133m,  35.91m), ("Glossy",        109m,  29.43m), ("Silver Spot",   133m,  35.91m) }),
+            ("MHW Turbo milk pitcher-450ml",                             "Brewing Equipment",    new[] { ("Glossy",        109m,  29.43m), ("Silver Spot",   133m,  35.91m) }),
+            ("MHW OZ Cup-50ml",                                          "Drinkware & Storage",  new[] { ("N/A",            31m,   8.37m) }),
+            ("MHW Stainless Steel Measuring Cup-100ml",                  "Brewing Equipment",    new[] { ("matte black",    47m,  12.69m) }),
+            ("MHW Flash Tamper 2.0-58mm-Flat 2.0",                      "Brewing Equipment",    new[] { ("N/A",           191m,  51.57m) }),
+            ("MHW Vase Tamper-58mm universal-Flat",                     "Brewing Equipment",    new[] { ("walnut",         72m,  19.44m) }),
+            ("MHW Cyclone Gravity Coffee Distributor-58mm universal",   "Brewing Equipment",    new[] { ("N/A",           269m,  72.63m) }),
+            ("MHW Astra Collection-Portafilter Holder-51-58mm",         "Brewing Equipment",    new[] { ("Black",         226m,  61.02m) }),
+            ("MHW Cube Coffee Scale 2.0 Mini",                          "Brewing Equipment",    new[] { ("Black",         140m,  37.80m) }),
+            ("MHW Cube Coffee Scale 3.0 Pro Max",                       "Brewing Equipment",    new[] { ("Black",         215m,  58.05m) }),
+            ("MHW Formula Smart Coffee Scale",                          "Brewing Equipment",    new[] { ("Black",         195m,  52.65m), ("White",         195m,  52.65m) }),
+            ("MHW Coffee Knock Box-6.8L",                               "Cleaning Maintenance", new[] { ("black",         503m, 135.81m) }),
+            ("MHW Coffee Knock Box Garbage Bag-30pcs",                  "Cleaning Maintenance", new[] { ("N/A",            74m,  19.98m) }),
+            ("MHW Magnetic Dosing Ring-58mm universal",                 "Brewing Equipment",    new[] { ("N/A",            59m,  15.93m) }),
+            ("MHW Assassin electric pour over kettle",                  "Brewing Equipment",    new[] { ("White",         429m, 115.83m), ("Black",         429m, 115.83m) }),
+            ("MHW Smooth Espresso Chilling Ball Stand-1pcs",            "Brewing Equipment",    new[] { ("Black",          70m,  18.90m), ("Silver",         70m,  18.90m) }),
+            ("MHW Elf Coffee Server-500ml",                             "Drinkware & Storage",  new[] { ("Transparent",    59m,  15.93m) }),
+            ("MHW Snail Filter Paper Holder",                           "Drinkware & Storage",  new[] { ("black",          70m,  18.90m) }),
+            ("MHW Paper Filter-100pcs/box-V02",                         "Brewing Equipment",    new[] { ("N/A",            51m,  13.77m) }),
+            ("MHW Paper Filter-100pcs/box-V01",                         "Brewing Equipment",    new[] { ("N/A",            39m,  10.53m) }),
+            ("MHW Silicone Dish Drying Pad-400300mm",                   "Cleaning Maintenance", new[] { ("black",         125m,  33.75m) }),
+            ("MHW YU Series-Tamping Base",                              "Brewing Equipment",    new[] { ("Black",         109m,  29.43m) }),
+            ("MHW Filter Basket-58mm universal-18g",                    "Brewing Equipment",    new[] { ("N/A",            47m,  12.69m) }),
+            ("MHW BEP Butterfly Basket 2.0-58mm universal-20g 2.0",    "Brewing Equipment",    new[] { ("N/A",            62m,  16.74m) }),
+            ("MHW BEP Butterfly Basket 2.0-51mm universal-12g 2.0",    "Brewing Equipment",    new[] { ("N/A",            62m,  16.74m) }),
+            ("MHW Elbow Brush-220mm-PA",                                "Cleaning Maintenance", new[] { ("Black",          31m,   8.37m) }),
+            ("MHW Blind Bowl-58mm universal",                           "Cleaning Maintenance", new[] { ("silver spot",    31m,   8.37m) }),
+            ("MHW Waffle towels-3030cm",                                "Cleaning Maintenance", new[] { ("dark grey",      27m,   7.29m) }),
+            ("MHW Hanging Ring Towel-3050cm",                           "Cleaning Maintenance", new[] { ("black",          31m,   8.37m) }),
+            ("MHW Cup Rinser-32.517.5cm-(S)",                           "Cleaning Maintenance", new[] { ("silver",        293m,  79.11m) }),
+            ("MHW Embedded Stainless Steel Cup Rinser-19.5x59.5cm",    "Cleaning Maintenance", new[] { ("silver",        858m, 231.66m) }),
+            ("MHW Milk pitcher 3.0-600ml-sharp spout",                  "Brewing Equipment",    new[] { ("Matte Black",   144m,  38.88m) }),
+            ("MHW Wright Cup-90ml",                                     "Drinkware & Storage",  new[] { ("transparent",    55m,  14.85m) }),
+            ("MHW Cream Double-layer Cup-300ML",                        "Drinkware & Storage",  new[] { ("N/A",           109m,  29.43m) }),
+            ("MHW CERA Series Ceramic Cup-240ml",                       "Drinkware & Storage",  new[] { ("Black",         140m,  37.80m) }),
+            ("MHW DW Glass-A-Shaped-130ml",                             "Drinkware & Storage",  new[] { ("Transparent",    78m,  21.06m), ("Black",          94m,  25.38m) }),
+            ("MHW DW Glass-H-Shaped-160ml",                             "Drinkware & Storage",  new[] { ("Transparent",    78m,  21.06m), ("Black",          94m,  25.38m) }),
+            ("MHW Yu Series-Unibody Bottomless Portafilter-Flat-58mm", "Brewing Equipment",    new[] { ("N/A",           772m, 208.44m) }),
+            ("MHW SE Pro Needle Distributor-58mm",                      "Brewing Equipment",    new[] { ("Space Silver",  566m, 152.82m), ("Obsidian Black", 566m, 152.82m) }),
+            ("MHW Coffee scale stand",                                  "Brewing Equipment",    new[] { ("Black",         195m,  52.65m) }),
+            ("MHW RDT Spray Bottle",                                    "Brewing Equipment",    new[] { ("Black",          23m,   6.21m) }),
+            ("MHW Coffee Bean Dosing Cup",                              "Brewing Equipment",    new[] { ("Black",          47m,  12.69m) }),
+            ("MHW Coffee Dosing Ring-58mm universal",                   "Brewing Equipment",    new[] { ("silver",         70m,  18.90m) }),
+            ("MHW B-3 Tactics Set-12 pcs in one",                      "Brewing Equipment",    new[] { ("Black",        1736m, 468.72m) }),
+            ("MHW Smooth Espresso Chilling Ball Stand-2pcs",            "Brewing Equipment",    new[] { ("Black",         125m,  33.75m), ("Silver",        125m,  33.75m) }),
+            ("MHW MET Outdoor Cassette Stove",                          "Brewing Equipment",    new[] { ("Metal Color",   351m,  94.77m) }),
+            ("MHW Gimme French Press-500ml",                            "Brewing Equipment",    new[] { ("black",          62m,  16.74m), ("white",          62m,  16.74m) }),
+            ("MHW Leather sheath sealed canister-600ml",                "Drinkware & Storage",  new[] { ("N/A",            62m,  16.74m) }),
+            ("MHW Energy Coffee Beans Storage Tubes Set-(20-26g)x8",   "Drinkware & Storage",  new[] { ("N/A",           293m,  79.11m) }),
+            ("MHW Air Blower",                                          "Cleaning Maintenance", new[] { ("silicone",       47m,  12.69m) }),
+            ("MHW Cofffee Bar Brush",                                   "Cleaning Maintenance", new[] { ("Black",          78m,  21.06m) }),
+            ("MHW Long Measuring Spoon-stainless steel-8g",             "Brewing Equipment",    new[] { ("silver spot",    47m,  12.69m) }),
+            ("MHW Coffee Spoon-stainless steel",                        "Brewing Equipment",    new[] { ("silver spot",    23m,   6.21m) }),
+            ("MHW Coffee Extraction Observation Mirror",                "Brewing Equipment",    new[] { ("Black",          94m,  25.38m) }),
+        };
+
+        var products = new List<Product>();
+        foreach (var item in accessories)
+        {
+            var slug = item.Name.ToLower()
+                .Replace(" ", "-").Replace("(", "").Replace(")", "")
+                .Replace(",", "").Replace("/", "-").Replace("【", "")
+                .Replace("】", "").Replace("*", "").Replace(".", "")
+                .Replace("®", "").Replace(":", "");
+
+            var variants = new List<ProductVariant>();
+            foreach (var (color, aed, usd) in item.Variants)
+            {
+                var isColorVariant = !string.IsNullOrEmpty(color) && color != "N/A";
+                var skuSuffix = isColorVariant ? color.Replace(" ", "") : "default";
+                var variant = new ProductVariant
+                {
+                    Id = Guid.NewGuid(),
+                    Sku = $"{slug}-{skuSuffix}".ToUpper(),
+                    Price = aed,
+                    StockQuantity = 10,
+                    Prices = new List<ProductVariantPrice>
+                    {
+                        new() { Currency = Currency.AED, Price = aed },
+                        new() { Currency = Currency.USD, Price = usd }
+                    },
+                    Options = new List<ProductVariantOption>()
+                };
+
+                if (isColorVariant)
+                {
+                    var colorVal = await GetOrCreateColorValue(color);
+                    variant.Options.Add(new ProductVariantOption { ProductAttributeValueId = colorVal.Id });
+                }
+
+                variants.Add(variant);
+            }
+
+            products.Add(new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = GetCategory(item.CategoryName).Id,
+                BrandId = mhwBrand.Id,
+                Slug = slug,
+                IsActive = true,
+                Translations = new List<ProductTranslation>
+                {
+                    new() { LanguageCode = "en", Name = item.Name }
+                },
+                Variants = variants
+            });
+        }
+
+        await context.Products.AddRangeAsync(products);
+        await TrySaveAsync(context, logger, "Accessories");
+        logger.LogInformation("MHW Accessories seeded successfully: {Count} products.", products.Count);
+    }
 
     private static async Task SeedCmsContentAsync(AppDbContext context, ILogger<AppDbContext> logger)
     {
@@ -555,7 +825,7 @@ public static class DbInitializer
         };
 
         await context.AboutSections.AddRangeAsync(aboutSections);
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "CmsContent:AboutSections");
     }
 
     private static async Task SeedOrdersAsync(AppDbContext context, UserManager<ApplicationUser> userManager, ILogger<AppDbContext> logger)
@@ -641,7 +911,7 @@ public static class DbInitializer
             await context.ContactMessages.AddRangeAsync(contactMessages);
         }
 
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "MarketingData");
     }
 
     private static async Task SeedShippingDataAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -662,7 +932,7 @@ public static class DbInitializer
                     };
 
             await context.Countries.AddRangeAsync(countries);
-            await context.SaveChangesAsync();
+            await TrySaveAsync(context, logger, "Countries");
             logger.LogInformation("Countries seeded: {CountryCount} GCC countries added", countries.Count);
         }
 
@@ -710,7 +980,7 @@ public static class DbInitializer
 
 
             await context.Cities.AddRangeAsync(cities);
-            await context.SaveChangesAsync();
+            await TrySaveAsync(context, logger, "Cities");
             logger.LogInformation("Cities seeded: {CityCount} GCC cities added", cities.Count);
         }
 
@@ -728,7 +998,7 @@ public static class DbInitializer
             }
 
             await context.ShippingRates.AddRangeAsync(rates);
-            await context.SaveChangesAsync();
+            await TrySaveAsync(context, logger, "ShippingRates");
             logger.LogInformation("Shipping Rates seeded: {RateCount} rates added", rates.Count);
         }
 
@@ -765,11 +1035,20 @@ public static class DbInitializer
 
     private static async Task SeedFiorenzatoGrindersAsync(AppDbContext context, ILogger<AppDbContext> logger)
     {
-        var category = await context.Categories.FirstOrDefaultAsync(c => c.Slug == "equipment");
+        var category = await context.Categories.FirstOrDefaultAsync(c => c.Slug == "professional-coffee-grinders");
         var brand = await context.Brands.FirstOrDefaultAsync(b => b.Name == "Fiorenzato");
 
-        if (category == null || brand == null) return;
-        if (await context.Products.AnyAsync(p => p.BrandId == brand.Id)) return;
+        if (category == null)
+            throw new InvalidOperationException("Seeding prerequisite missing: Category with slug 'professional-coffee-grinders' was not found. Ensure SeedCategoriesAsync completed successfully before SeedFiorenzatoGrindersAsync.");
+
+        if (brand == null)
+            throw new InvalidOperationException("Seeding prerequisite missing: Brand 'Fiorenzato' was not found. Ensure SeedBrandsAsync completed successfully before SeedFiorenzatoGrindersAsync.");
+
+        if (await context.Products.AnyAsync(p => p.BrandId == brand.Id))
+        {
+            logger.LogInformation("Fiorenzato grinder products already seeded. Skipping SeedFiorenzatoGrindersAsync.");
+            return;
+        }
 
         logger.LogInformation("Seeding Fiorenzato Grinders...");
 
@@ -778,7 +1057,8 @@ public static class DbInitializer
         {
             colorAttribute = new ProductAttribute { Name = "Color" };
             context.ProductAttributes.Add(colorAttribute);
-            await context.SaveChangesAsync();
+            await TrySaveAsync(context, logger, "ProductAttribute:Color");
+            colorAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Color") ?? colorAttribute;
         }
 
         async Task<ProductAttributeValue> GetOrAddColorFallback(string colorName)
@@ -788,7 +1068,8 @@ public static class DbInitializer
             {
                 val = new ProductAttributeValue { ProductAttributeId = colorAttribute.Id, Value = colorName };
                 context.ProductAttributeValues.Add(val);
-                await context.SaveChangesAsync();
+                await TrySaveAsync(context, logger, $"ProductAttributeValue:Color:{colorName}");
+                val = await context.ProductAttributeValues.FirstOrDefaultAsync(v => v.ProductAttributeId == colorAttribute.Id && v.Value == colorName) ?? val;
             }
             return val;
         }
@@ -1042,7 +1323,7 @@ public static class DbInitializer
         }
 
         await context.Products.AddRangeAsync(newProducts);
-        await context.SaveChangesAsync();
+        await TrySaveAsync(context, logger, "FiorenzatoGrinders");
         logger.LogInformation("Fiorenzato Grinders seeded successfully.");
     }
 }

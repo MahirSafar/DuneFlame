@@ -158,6 +158,18 @@ public class ProductService(
             {
                 foreach (var flavourNote in request.FlavourNotes)
                 {
+                    // If an existing FlavourNote ID is supplied, attach the tracked DB entity
+                    // rather than creating a new one — prevents duplicate translation key violations.
+                    if (flavourNote.Id.HasValue && flavourNote.Id.Value != Guid.Empty)
+                    {
+                        var existingNote = await _context.Set<FlavourNote>().FindAsync(flavourNote.Id.Value);
+                        if (existingNote != null)
+                        {
+                            product.CoffeeProfile!.FlavourNotes.Add(existingNote);
+                            continue;
+                        }
+                    }
+
                     var note = new FlavourNote
                     {
                         Name = flavourNote.Name,
@@ -171,7 +183,7 @@ public class ProductService(
                         Name = flavourNote.Name
                     });
 
-                    // Add additional translations if provided
+                    // Add additional translations if provided (skip duplicates of the default "en" already added)
                     if (flavourNote.Translations != null && flavourNote.Translations.Count > 0)
                     {
                         foreach (var translation in flavourNote.Translations)
@@ -181,6 +193,10 @@ public class ProductService(
                                 ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
                                 : "en";
 
+                            // Avoid adding a duplicate "en" translation if the default was already added
+                            if (note.Translations.Any(t => t.LanguageCode == normalizedLanguageCode))
+                                continue;
+
                             note.Translations.Add(new FlavourNoteTranslation
                             {
                                 LanguageCode = normalizedLanguageCode,
@@ -189,7 +205,7 @@ public class ProductService(
                         }
                     }
 
-                    product.CoffeeProfile.FlavourNotes.Add(note);
+                    product.CoffeeProfile!.FlavourNotes.Add(note);
                 }
             }
         } // closing if (isCoffee)
@@ -420,7 +436,7 @@ public class ProductService(
 
     public async Task<PagedResult<ProductResponse>> GetAllAsync(
         int pageNumber = 1,
-        int pageSize = 10,
+        int pageSize = 8,
         string? sortBy = null,
         string? search = null,
         Guid? categoryId = null,
@@ -431,7 +447,7 @@ public class ProductService(
         Guid[]? originIds = null)
     {
         if (pageNumber < 1) pageNumber = 1;
-        if (pageSize < 1) pageSize = 10;
+        if (pageSize < 1) pageSize = 8;
         if (pageSize > 100) pageSize = 100;
 
         var currentCurrency = _currencyProvider.GetCurrentCurrency();
@@ -475,7 +491,10 @@ public class ProductService(
 
                 if (categoryId.HasValue)
                 {
-                    query = query.Where(p => p.CategoryId == categoryId.Value);
+                    // Recursively collect the target category + all its descendants
+                    // so browsing e.g. "equipment" returns products from "professional-coffee-grinders"
+                    var categoryIds = await GetDescendantCategoryIdsAsync(categoryId.Value);
+                    query = query.Where(p => categoryIds.Contains(p.CategoryId));
                 }
 
                 if (brandId.HasValue)
@@ -620,7 +639,9 @@ public class ProductService(
 
                 if (categoryId.HasValue)
                 {
-                    query = query.Where(p => p.CategoryId == categoryId.Value);
+                    // Recursively collect the target category + all its descendants
+                    var categoryIds = await GetDescendantCategoryIdsAsync(categoryId.Value);
+                    query = query.Where(p => categoryIds.Contains(p.CategoryId));
                 }
 
                 if (brandId.HasValue)
@@ -892,6 +913,41 @@ public class ProductService(
     /// <summary>
     /// Extracts the language code from the Accept-Language header.
     /// Defaults to "en" if not specified or unsupported.
+    /// <summary>
+    /// Returns the target category's own ID plus all descendant category IDs
+    /// using an in-memory BFS over the full category list fetched in one query.
+    /// This avoids N+1 recursive DB calls while supporting arbitrary tree depth.
+    /// </summary>
+    private async Task<HashSet<Guid>> GetDescendantCategoryIdsAsync(Guid rootCategoryId)
+    {
+        var all = await _context.Categories
+            .AsNoTracking()
+            .Select(c => new { c.Id, c.ParentCategoryId })
+            .ToListAsync();
+
+        var byParent = all.GroupBy(c => c.ParentCategoryId)
+                          .ToDictionary(g => g.Key, g => g.Select(c => c.Id).ToList());
+
+        var result = new HashSet<Guid> { rootCategoryId };
+        var queue = new Queue<Guid>();
+        queue.Enqueue(rootCategoryId);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!byParent.TryGetValue(current, out var children)) continue;
+            foreach (var child in children)
+            {
+                if (result.Add(child))
+                    queue.Enqueue(child);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts the preferred language from the Accept-Language request header.
     /// Supports: "ar" (Arabic) and "en" (English).
     /// </summary>
     private string ExtractLanguageFromRequest()

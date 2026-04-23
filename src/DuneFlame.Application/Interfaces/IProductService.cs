@@ -16,7 +16,7 @@ public interface IProductService
     Task<ProductResponse> GetBySlugAsync(string slug);
     Task<PagedResult<ProductResponse>> GetAllAsync(
         int pageNumber = 1,
-        int pageSize = 10,
+        int pageSize = 8,
         string? sortBy = null,
         string? search = null,
         Guid? categoryId = null,

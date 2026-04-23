@@ -120,7 +120,8 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
                 ?? "Unknown",
                 c.Slug,
-                c.IsCoffeeCategory))
+                c.IsCoffeeCategory,
+                c.ParentCategoryId == Guid.Empty ? null : c.ParentCategoryId))
                 .ToList();
 
             return Ok(categoryDtos);
@@ -224,7 +225,8 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
                 ?? "Unknown",
                 c.Slug,
-                c.IsCoffeeCategory))
+                c.IsCoffeeCategory,
+                c.ParentCategoryId == Guid.Empty ? null : c.ParentCategoryId))
                 .ToList();
 
             var origins = await _context.Origins
@@ -282,7 +284,7 @@ public record GrindTypeDto(Guid Id, string Name);
 /// <summary>
 /// DTO for Category master data
 /// </summary>
-public record CategoryDto(Guid Id, string Name, string Slug, bool IsCoffeeCategory);
+public record CategoryDto(Guid Id, string Name, string Slug, bool IsCoffeeCategory, Guid? ParentCategoryId);
 
 /// <summary>
 /// DTO for Origin master data

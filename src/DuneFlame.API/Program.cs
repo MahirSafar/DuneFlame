@@ -191,6 +191,8 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        // Prevent StackOverflowException (SIGABRT/signal 6) if any object graph contains circular references
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 builder.Services.AddOpenApi();
 
@@ -210,14 +212,7 @@ builder.Services.AddHealthChecks()
 // ==========================================
 var app = builder.Build();
 
-// 1. ƏVVƏLCƏ BAZANI YENİLƏ (AUTO MIGRATION)
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    dbContext.Database.Migrate();
-}
-
-// 2. SONRA İLKİN DATALARI YAZ (SEEDING)
+// 1. SEED (migration is handled inside DbInitializer.InitializeAsync)
 if (!app.Environment.IsEnvironment("Testing"))
 {
     try
@@ -228,14 +223,8 @@ if (!app.Environment.IsEnvironment("Testing"))
     }
     catch (Exception ex)
     {
-        Log.Fatal(ex, "Database initialization failed. The application may not have access to the database.");
-        // In cloud environments, we allow the app to continue rather than crash immediately
-        // This prevents cascading failures in environments like Google Cloud Run
-        // where containers restart frequently during deployment
-        if (!app.Environment.IsProduction())
-        {
-            throw; // Re-throw in development to catch issues early
-        }
+        Log.Fatal(ex, "Database initialization failed. The application cannot start without a properly seeded database.");
+        throw;
     }
 }
 

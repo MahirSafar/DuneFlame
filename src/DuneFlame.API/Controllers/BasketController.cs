@@ -1,5 +1,7 @@
 using DuneFlame.Application.DTOs.Basket;
 using DuneFlame.Application.Interfaces;
+using DuneFlame.Application.Validators;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -8,17 +10,21 @@ namespace DuneFlame.API.Controllers;
 
 [Route("api/v1/basket")]
 [ApiController]
-public class BasketController(IBasketService basketService, ICurrencyProvider currencyProvider, IProductService productService) : ControllerBase
+public class BasketController(IBasketService basketService, ICurrencyProvider currencyProvider, IProductService productService, IValidator<CustomerBasketDto> validator) : ControllerBase
 {
     private readonly IBasketService _basketService = basketService;
     private readonly ICurrencyProvider _currencyProvider = currencyProvider;
     private readonly IProductService _productService = productService;
+    private readonly IValidator<CustomerBasketDto> _validator = validator;
 
     // SEHRBAZ METOD: Giriş etmiş istifadəçilərin ID-sini avtomatik tapır
     // Kimsə başqasının səbətinə nəsə ata bilməsin deyə qoruyur.
+    // "me" və ya boş ID göndərilərsə auth userId ilə əvəzlənir.
+    // Explicit guest basket ID göndərilirsə — merge üçün — olduğu kimi saxlanılır.
     private string ResolveBasketId(string providedId)
     {
-        if (User.Identity is { IsAuthenticated: true })
+        if (User.Identity is { IsAuthenticated: true } &&
+            (string.IsNullOrWhiteSpace(providedId) || providedId.Equals("me", StringComparison.OrdinalIgnoreCase)))
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!string.IsNullOrEmpty(userId)) return userId;
@@ -52,6 +58,10 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
         try
         {
             if (basket == null || string.IsNullOrWhiteSpace(basket.Id)) return BadRequest(new { message = "Basket ID is required" });
+
+            var validationResult = await _validator.ValidateAsync(basket);
+            if (!validationResult.IsValid)
+                return BadRequest(new { message = validationResult.Errors[0].ErrorMessage });
 
             // Əgər istifadəçi giriş edibsə, səbət avtomatik onun öz profilinə (JSONB) yazılacaq
             basket.Id = ResolveBasketId(basket.Id);
@@ -114,7 +124,7 @@ public class BasketController(IBasketService basketService, ICurrencyProvider cu
 
             decimal gap = threshold - request.CurrentSubtotal;
 
-            var recommendation = await _productService.GetUpsellRecommendationAsync(gap, request.ExcludedProductPriceIds, currentCurrency);
+            var recommendation = await _productService.GetUpsellRecommendationAsync(gap, request.ExcludedProductVariantIds, currentCurrency);
 
             var response = new UpsellResponseDto
             {

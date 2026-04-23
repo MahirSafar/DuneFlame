@@ -16,7 +16,7 @@ public class PublicProductController(IProductService productService) : Controlle
     [HttpGet]
     public async Task<ActionResult<PagedResult<ProductResponse>>> GetAllProducts(
         [FromQuery] int pageNumber = 1,
-        [FromQuery] int pageSize = 10,
+        [FromQuery] int pageSize = 8,
         [FromQuery] string? search = null,
         [FromQuery] string? sortBy = null,
         [FromQuery] Guid? categoryId = null,

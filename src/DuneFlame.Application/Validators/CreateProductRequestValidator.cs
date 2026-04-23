@@ -26,7 +26,10 @@ public class CreateProductRequestValidator : AbstractValidator<CreateProductRequ
 
         RuleFor(x => x.CategoryId)
             .NotEmpty()
-            .WithMessage("Category ID is required.");
+            .WithMessage("Category ID is required.")
+            .MustAsync(async (categoryId, cancellation) =>
+                await _categoryService.IsLeafCategoryAsync(categoryId))
+            .WithMessage("Products can only be assigned to leaf categories (categories with no sub-categories).");
 
         WhenAsync(async (x, cancellation) => await IsCoffeeCategory(x.CategoryId, cancellation), () =>
         {

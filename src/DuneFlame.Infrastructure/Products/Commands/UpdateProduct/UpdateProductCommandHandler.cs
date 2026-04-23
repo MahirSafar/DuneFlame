@@ -74,6 +74,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
                 .ThenInclude(cp => cp.GrindTypes)
             .Include(p => p.CoffeeProfile)
                 .ThenInclude(cp => cp.FlavourNotes)
+                    .ThenInclude(fn => fn.Translations)
             .Include(p => p.EquipmentProfile)
             .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
 

@@ -30,6 +30,11 @@ public class BasketService(AppDbContext context) : IBasketService
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase 
         };
         var items = JsonSerializer.Deserialize<List<BasketItemDto>>(basketEntity.Items, options) ?? [];
+        foreach (var item in items)
+        {
+            if (item.RoastLevelId == Guid.Empty) item.RoastLevelId = null;
+            if (item.GrindTypeId == Guid.Empty) item.GrindTypeId = null;
+        }
         return new CustomerBasketDto { Id = userId, Items = items };
     }
 
@@ -38,6 +43,25 @@ public class BasketService(AppDbContext context) : IBasketService
         if (basket == null || string.IsNullOrWhiteSpace(basket.Id))
         {
             throw new ArgumentException("Basket and Basket.Id cannot be null or empty.", nameof(basket));
+        }
+
+        if (basket.Items != null)
+        {
+            var emptyGuidItem = basket.Items.Find(i => i.ProductVariantId == Guid.Empty);
+            if (emptyGuidItem != null)
+            {
+                throw new ArgumentException("One or more basket items contain an invalid ProductVariantId (empty GUID). All items must reference a valid product variant.");
+            }
+
+            foreach (var item in basket.Items.Where(i => i.Id == null))
+            {
+                item.Id = Guid.NewGuid();
+            }
+            foreach (var item in basket.Items)
+            {
+                if (item.RoastLevelId == Guid.Empty) item.RoastLevelId = null;
+                if (item.GrindTypeId == Guid.Empty) item.GrindTypeId = null;
+            }
         }
 
         var options = new JsonSerializerOptions { 
