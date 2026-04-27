@@ -9,6 +9,7 @@ public class SliderTranslation : BaseEntity
     public string Title { get; set; } = string.Empty;
     public string? Subtitle { get; set; }
     public string? ButtonText { get; set; }
+    public string? LinkUrl { get; set; }
 
     // Navigation Property
     public virtual Slider Slider { get; set; } = null!;

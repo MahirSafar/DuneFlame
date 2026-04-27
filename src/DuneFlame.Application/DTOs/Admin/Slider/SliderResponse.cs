@@ -15,5 +15,6 @@ public record SliderTranslationResponseDto(
     string LanguageCode,
     string Title,
     string? Subtitle,
-    string? ButtonText
+    string? ButtonText,
+    string? LinkUrl
 );

@@ -6,4 +6,5 @@ public class SliderTranslationDto
     public string Title { get; set; } = null!;
     public string? Subtitle { get; set; }
     public string? ButtonText { get; set; }
+    public string? LinkUrl { get; set; }
 }

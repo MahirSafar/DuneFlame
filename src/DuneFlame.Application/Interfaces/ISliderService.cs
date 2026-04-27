@@ -1,5 +1,6 @@
 using DuneFlame.Application.DTOs.Admin.Slider;
 using DuneFlame.Application.DTOs.Common;
+using DuneFlame.Application.DTOs.Public;
 
 namespace DuneFlame.Application.Interfaces;
 
@@ -10,4 +11,5 @@ public interface ISliderService
     Task<PagedResult<SliderResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10);
     Task UpdateAsync(Guid id, UpdateSliderRequest request);
     Task DeleteAsync(Guid id);
+    Task<List<PublicSliderDto>> GetPublicSlidersAsync(string languageCode);
 }

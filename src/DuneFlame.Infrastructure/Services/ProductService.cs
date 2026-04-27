@@ -273,10 +273,22 @@ public class ProductService(
 
         var query = _context.ProductVariants
             .Include(pv => pv.Prices)
+            .Include(pv => pv.Options)
+                .ThenInclude(o => o.ProductAttributeValue)
+                    .ThenInclude(av => av.ProductAttribute)
             .Include(pv => pv.Product)
                 .ThenInclude(p => p.Translations)
             .Include(pv => pv.Product)
                 .ThenInclude(p => p.Images)
+            .Include(pv => pv.Product)
+                .ThenInclude(p => p.CoffeeProfile)
+                    .ThenInclude(cp => cp!.Origin)
+            .Include(pv => pv.Product)
+                .ThenInclude(p => p.CoffeeProfile)
+                    .ThenInclude(cp => cp!.RoastLevels)
+            .Include(pv => pv.Product)
+                .ThenInclude(p => p.CoffeeProfile)
+                    .ThenInclude(cp => cp!.GrindTypes)
             .AsSingleQuery()
             .Where(pv => pv.Product != null && pv.Product.IsActive && pv.StockQuantity > 0);
 
@@ -316,6 +328,9 @@ public class ProductService(
             }
         }
 
+        var coffeeProfile = bestVariant.Product.CoffeeProfile;
+        var isCoffee = coffeeProfile != null;
+
         return new DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto
         {
             ProductId = bestVariant.ProductId,
@@ -326,7 +341,16 @@ public class ProductService(
             Price = bestVariant.Price,
             CurrencyCode = currencyCode,
             WeightLabel = bestVariant.Sku,
-            AvailablePrices = pricesDict
+            AvailablePrices = pricesDict,
+            HasVariants = bestVariant.Options != null && bestVariant.Options.Any(),
+            IsCoffee = isCoffee,
+            OriginName = coffeeProfile?.Origin?.Name,
+            RoastLevelNames = isCoffee ? coffeeProfile!.RoastLevels.Select(r => r.Name).ToList() : null,
+            GrindTypeNames = isCoffee ? coffeeProfile!.GrindTypes.Select(g => g.Name).ToList() : null,
+            Options = bestVariant.Options?.Select(o => new DuneFlame.Application.DTOs.Product.VariantOptionDto(
+                o.ProductAttributeValue?.ProductAttribute?.Name ?? string.Empty,
+                o.ProductAttributeValue?.Value ?? string.Empty
+            )).ToList(),
         };
     }
 

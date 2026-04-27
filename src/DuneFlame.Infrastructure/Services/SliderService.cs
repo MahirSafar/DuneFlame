@@ -1,5 +1,6 @@
 using DuneFlame.Application.DTOs.Admin.Slider;
 using DuneFlame.Application.DTOs.Common;
+using DuneFlame.Application.DTOs.Public;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Exceptions;
@@ -47,7 +48,8 @@ public class SliderService(
                     LanguageCode = translation.LanguageCode.Substring(0, 2),
                     Title = translation.Title,
                     Subtitle = translation.Subtitle,
-                    ButtonText = translation.ButtonText
+                    ButtonText = translation.ButtonText,
+                    LinkUrl = translation.LinkUrl
                 });
             }
 
@@ -164,12 +166,12 @@ public class SliderService(
                         Title = translation.Title,
                         Subtitle = translation.Subtitle,
                         ButtonText = translation.ButtonText,
+                        LinkUrl = translation.LinkUrl,
                         SliderId = id
                     });
                 }
             }
 
-            _context.Sliders.Update(slider);
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Slider updated successfully: {SliderId}", id);
@@ -208,8 +210,43 @@ public class SliderService(
         }
     }
 
-    private static SliderResponse MapToResponse(Slider slider)
+    public async Task<List<PublicSliderDto>> GetPublicSlidersAsync(string languageCode)
     {
+        try
+        {
+            var lang = (languageCode ?? "en").Substring(0, 2).ToLowerInvariant();
+
+            var sliders = await _context.Sliders
+                .Where(s => s.IsActive)
+                .Include(s => s.Translations)
+                .OrderBy(s => s.Order)
+                .ToListAsync();
+
+            return sliders.Select(s =>
+            {
+                var translation = s.Translations.FirstOrDefault(t => t.LanguageCode == lang)
+                               ?? s.Translations.FirstOrDefault(t => t.LanguageCode == "en")
+                               ?? s.Translations.FirstOrDefault();
+
+                return new PublicSliderDto(
+                    Id: s.Id,
+                    ImageUrl: s.ImageUrl,
+                    Order: s.Order,
+                    Title: translation?.Title ?? string.Empty,
+                    Subtitle: translation?.Subtitle,
+                    ButtonText: translation?.ButtonText,
+                    LinkUrl: translation?.LinkUrl
+                );
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving public sliders");
+            throw;
+        }
+    }
+
+    private static SliderResponse MapToResponse(Slider slider)    {
         return new SliderResponse(
             Id: slider.Id,
             ImageUrl: slider.ImageUrl,
@@ -221,7 +258,8 @@ public class SliderService(
                     LanguageCode: t.LanguageCode,
                     Title: t.Title,
                     Subtitle: t.Subtitle,
-                    ButtonText: t.ButtonText
+                    ButtonText: t.ButtonText,
+                    LinkUrl: t.LinkUrl
                 ))
                 .ToList(),
             CreatedAt: slider.CreatedAt,
