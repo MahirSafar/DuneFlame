@@ -6,7 +6,6 @@ using DuneFlame.Domain.Enums;
 using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -168,16 +167,21 @@ public class OrderService(
                 // Price MUST be taken from the database (ProductVariant), not from the basket (security)
                 foreach (var basketItem in basket.Items)
                 {
-                    // Get the product variant using BasketItem's ProductVariantId
-                    var productVariant = await _context.ProductVariants
-                        .Include(v => v.Product)
-                        .ThenInclude(p => p.Translations)
-                        .Include(v => v.Prices)
-                        .FirstOrDefaultAsync(v => v.Id == basketItem.ProductVariantId) ?? throw new NotFoundException($"ProductVariant with ID {basketItem.ProductVariantId} not found");
-                    var product = productVariant.Product ?? throw new NotFoundException($"Product for ProductVariant {basketItem.ProductVariantId} not found");
+                    // Get product variant using BasketItem's ProductVariantId
+                        var productVariant = await _context.ProductVariants
+                            .Include(v => v.Product)
+                            .ThenInclude(p => p.Translations)
+                            .Include(v => v.Prices)
+                            .FirstOrDefaultAsync(v => v.Id == basketItem.ProductVariantId) ?? throw new NotFoundException($"ProductVariant with ID {basketItem.ProductVariantId} not found");
+                        var product = productVariant.Product ?? throw new NotFoundException($"Product for ProductVariant {basketItem.ProductVariantId} not found");
 
-                    // Get product name from translation
-                    var productName = product.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name ?? "Unknown";
+                        // Snapshot the product name in the user's current shopping language with English fallback
+                        var snapshotLang = !string.IsNullOrWhiteSpace(request.LanguageCode)
+                            ? request.LanguageCode.Substring(0, Math.Min(2, request.LanguageCode.Length)).ToLower()
+                            : "en";
+                        var productName = product.Translations?.FirstOrDefault(t => t.LanguageCode == snapshotLang)?.Name
+                                          ?? product.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                                          ?? "Unknown";
 
                     // Resolve the active price correctly
                     var requestedCurrencyEnum = Enum.Parse<Currency>(requestCurrency, ignoreCase: true);

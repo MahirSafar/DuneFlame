@@ -44,6 +44,13 @@ public class NewsletterService(
         await _context.NewsletterSubscriptions.AddAsync(sub);
         await _context.SaveChangesAsync();
 
+        var totalSubscribers = await _context.NewsletterSubscriptions.CountAsync(s => s.IsVerified);
+
+        await Task.WhenAll(
+            _emailService.SendNewsletterSubscribedAsync(request.Email, sub.UnsubscribeToken),
+            _emailService.SendNewsletterAdminReportAsync(request.Email, totalSubscribers)
+        );
+
         _logger.LogInformation("New newsletter subscription created and auto-verified: {Email}", request.Email);
     }
 

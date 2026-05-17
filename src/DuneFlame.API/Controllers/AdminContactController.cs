@@ -1,3 +1,4 @@
+using DuneFlame.Application.DTOs.Admin;
 using DuneFlame.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,9 +13,9 @@ public class AdminContactController(IContactService contactService) : Controller
     private readonly IContactService _contactService = contactService;
 
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, [FromQuery] string? search = null, [FromQuery] bool? isRead = null)
+    public async Task<IActionResult> GetAll([FromQuery] AdminContactsQuery query)
     {
-        var result = await _contactService.GetAllAdminAsync(pageNumber, pageSize, search, isRead);
+        var result = await _contactService.GetAllAdminAsync(query);
         return Ok(result);
     }
 

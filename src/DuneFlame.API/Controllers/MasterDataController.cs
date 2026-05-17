@@ -1,4 +1,4 @@
-using DuneFlame.Domain.Entities;
+﻿using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,6 +10,8 @@ namespace DuneFlame.API.Controllers;
 /// <summary>
 /// Master Data Controller - Exposes reference data for UI forms and dropdowns.
 /// This includes product attributes, roast levels, grind types, categories, and origins.
+/// All endpoints resolve translated names from the Accept-Language header (ar/en), with
+/// English fallback and raw entity Name as final fallback.
 /// </summary>
 [Route("api/v1/master-data")]
 [ApiController]
@@ -20,26 +22,55 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     private readonly ILogger<MasterDataController> _logger = logger;
 
     /// <summary>
-    /// Get all available product attributes (e.g. Weight, Color).
+    /// Reads and normalises the Accept-Language header to a 2-char code.
+    /// Supports "ar" and "en"; all other values fall back to "en".
+    /// </summary>
+    private string ExtractLanguage()
+    {
+        var header = Request.Headers["Accept-Language"].ToString();
+        if (string.IsNullOrWhiteSpace(header)) return "en";
+        var lang = header.Split(',')[0].Trim();
+        lang = lang.Length >= 2 ? lang[..2].ToLower() : "en";
+        return lang == "ar" ? "ar" : "en";
+    }
+
+    /// <summary>
+    /// Get all available product attributes (e.g. Weight, Color) with translated names and values.
     /// </summary>
     [HttpGet("attributes")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<List<ProductAttributeDto>>> GetAttributes()
     {
         try
         {
+            var lang = ExtractLanguage();
+
             var attributes = await _context.ProductAttributes
                 .AsNoTracking()
+                .Include(a => a.Translations)
                 .Include(a => a.Values)
+                    .ThenInclude(v => v.Translations)
                 .OrderBy(a => a.Name)
-                .Select(a => new ProductAttributeDto(
-                    a.Id, 
-                    a.Name,
-                    a.Values.Select(v => new ProductAttributeValueDto(v.Id, v.Value)).ToList()
-                ))
                 .ToListAsync();
 
-            return Ok(attributes);
+            var dtos = attributes.Select(a =>
+            {
+                var attrName = a.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                            ?? a.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                            ?? a.Name;
+
+                var valueDtos = a.Values.Select(v =>
+                {
+                    var val = v.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedValue
+                           ?? v.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedValue
+                           ?? v.Value;
+                    return new ProductAttributeValueDto(v.Id, val);
+                }).ToList();
+
+                return new ProductAttributeDto(a.Id, attrName, valueDtos);
+            }).ToList();
+
+            return Ok(dtos);
         }
         catch (Exception ex)
         {
@@ -48,22 +79,31 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     }
 
     /// <summary>
-    /// Get all available roast levels for roast selection in product forms.
+    /// Get all available roast levels with translated names.
     /// </summary>
-    /// <returns>List of roast levels (Id, Name)</returns>
     [HttpGet("roast-levels")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<List<RoastLevelDto>>> GetRoastLevels()
     {
         try
         {
+            var lang = ExtractLanguage();
+
             var roastLevels = await _context.RoastLevels
                 .AsNoTracking()
+                .Include(r => r.Translations)
                 .OrderBy(r => r.Name)
-                .Select(r => new RoastLevelDto(r.Id, r.Name))
                 .ToListAsync();
 
-            return Ok(roastLevels);
+            var dtos = roastLevels.Select(r =>
+            {
+                var name = r.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? r.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? r.Name;
+                return new RoastLevelDto(r.Id, name);
+            }).ToList();
+
+            return Ok(dtos);
         }
         catch (Exception ex)
         {
@@ -72,22 +112,31 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     }
 
     /// <summary>
-    /// Get all available grind types for grind selection in product forms.
+    /// Get all available grind types with translated names.
     /// </summary>
-    /// <returns>List of grind types (Id, Name)</returns>
     [HttpGet("grind-types")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<List<GrindTypeDto>>> GetGrindTypes()
     {
         try
         {
+            var lang = ExtractLanguage();
+
             var grindTypes = await _context.GrindTypes
                 .AsNoTracking()
+                .Include(g => g.Translations)
                 .OrderBy(g => g.Name)
-                .Select(g => new GrindTypeDto(g.Id, g.Name))
                 .ToListAsync();
 
-            return Ok(grindTypes);
+            var dtos = grindTypes.Select(g =>
+            {
+                var name = g.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? g.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? g.Name;
+                return new GrindTypeDto(g.Id, name);
+            }).ToList();
+
+            return Ok(dtos);
         }
         catch (Exception ex)
         {
@@ -96,15 +145,12 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     }
 
     [HttpGet("categories")]
-    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")] // Cache dilə görə dəyişir
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<List<CategoryDto>>> GetCategories()
     {
         try
         {
-            // 1. Header-dən dili oxuyuruq (Frontend-dən gələn 'Accept-Language')
-            var header = Request.Headers["Accept-Language"].ToString();
-            // Sadələşdirmə: 'ar-SA' gəlsə də, 'ar' götürürük. Yoxdursa 'en'.
-            var lang = !string.IsNullOrWhiteSpace(header) && header.StartsWith("ar") ? "ar" : "en";
+            var lang = ExtractLanguage();
 
             var categories = await _context.Categories
                 .AsNoTracking()
@@ -112,17 +158,14 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
                 .OrderBy(c => c.Slug)
                 .ToListAsync();
 
-            var categoryDtos = categories.Select(c => new CategoryDto(
-                c.Id,
-                // 2. Dinamik dil seçimi:
-                // Əvvəl istifadəçinin dilini yoxla, tapmasan İngiliscəni, onu da tapmasan "Unknown"
-                c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name 
-                ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
-                ?? "Unknown",
-                c.Slug,
-                c.IsCoffeeCategory,
-                c.ParentCategoryId == Guid.Empty ? null : c.ParentCategoryId))
-                .ToList();
+            var categoryDtos = categories.Select(c =>
+            {
+                var name = c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name
+                        ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                        ?? "Unknown";
+                return new CategoryDto(c.Id, name, c.Slug, c.IsCoffeeCategory,
+                    c.ParentCategoryId == Guid.Empty ? null : c.ParentCategoryId);
+            }).ToList();
 
             return Ok(categoryDtos);
         }
@@ -133,22 +176,31 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     }
 
     /// <summary>
-    /// Get all available product origins for origin selection in product forms.
+    /// Get all available product origins with translated names.
     /// </summary>
-    /// <returns>List of origins (Id, Name)</returns>
     [HttpGet("origins")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<List<OriginDto>>> GetOrigins()
     {
         try
         {
+            var lang = ExtractLanguage();
+
             var origins = await _context.Origins
                 .AsNoTracking()
+                .Include(o => o.Translations)
                 .OrderBy(o => o.Name)
-                .Select(o => new OriginDto(o.Id, o.Name))
                 .ToListAsync();
 
-            return Ok(origins);
+            var dtos = origins.Select(o =>
+            {
+                var name = o.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? o.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? o.Name;
+                return new OriginDto(o.Id, name);
+            }).ToList();
+
+            return Ok(dtos);
         }
         catch (Exception ex)
         {
@@ -157,19 +209,29 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     }
 
     [HttpGet("brands")]
-    [ResponseCache(Duration = 3600)] // Cache for 1 hour
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<List<BrandDto>>> GetBrands()
     {
         try
         {
+            var lang = ExtractLanguage();
+
             var brands = await _context.Brands
                 .AsNoTracking()
+                .Include(b => b.Translations)
                 .Where(b => b.IsActive)
                 .OrderBy(b => b.Name)
-                .Select(b => new BrandDto(b.Id, b.Name))
                 .ToListAsync();
 
-            return Ok(brands);
+            var dtos = brands.Select(b =>
+            {
+                var name = b.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? b.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? b.Name;
+                return new BrandDto(b.Id, name);
+            }).ToList();
+
+            return Ok(dtos);
         }
         catch (Exception ex)
         {
@@ -178,88 +240,117 @@ public class MasterDataController(AppDbContext context, ILogger<MasterDataContro
     }
 
     [HttpGet("all")]
-    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")] // Cache dilə görə dəyişir
+    [ResponseCache(Duration = 3600, VaryByHeader = "Accept-Language")]
     public async Task<ActionResult<MasterDataCollectionDto>> GetAllMasterData()
     {
         try
         {
-            // 1. Header-dən dili oxuyuruq (Frontend-dən gələn 'Accept-Language')
-            var header = Request.Headers["Accept-Language"].ToString();
-            // Sadələşdirmə: 'ar-SA' gəlsə də, 'ar' götürürük. Yoxdursa 'en'.
-            var lang = !string.IsNullOrWhiteSpace(header) && header.StartsWith("ar") ? "ar" : "en";
+            var lang = ExtractLanguage();
 
-            var attributes = await _context.ProductAttributes
+            var attributeEntities = await _context.ProductAttributes
                 .AsNoTracking()
+                .Include(a => a.Translations)
                 .Include(a => a.Values)
+                    .ThenInclude(v => v.Translations)
                 .OrderBy(a => a.Name)
-                .Select(a => new ProductAttributeDto(
-                    a.Id, 
-                    a.Name,
-                    a.Values.Select(v => new ProductAttributeValueDto(v.Id, v.Value)).ToList()
-                ))
                 .ToListAsync();
 
-            var roastLevels = await _context.RoastLevels
+            var attributes = attributeEntities.Select(a =>
+            {
+                var attrName = a.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                            ?? a.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                            ?? a.Name;
+                var valueDtos = a.Values.Select(v =>
+                {
+                    var val = v.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedValue
+                           ?? v.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedValue
+                           ?? v.Value;
+                    return new ProductAttributeValueDto(v.Id, val);
+                }).ToList();
+                return new ProductAttributeDto(a.Id, attrName, valueDtos);
+            }).ToList();
+
+            var roastLevelEntities = await _context.RoastLevels
                 .AsNoTracking()
+                .Include(r => r.Translations)
                 .OrderBy(r => r.Name)
-                .Select(r => new RoastLevelDto(r.Id, r.Name))
                 .ToListAsync();
 
-            var grindTypes = await _context.GrindTypes
+            var roastLevels = roastLevelEntities.Select(r =>
+            {
+                var name = r.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? r.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? r.Name;
+                return new RoastLevelDto(r.Id, name);
+            }).ToList();
+
+            var grindTypeEntities = await _context.GrindTypes
                 .AsNoTracking()
+                .Include(g => g.Translations)
                 .OrderBy(g => g.Name)
-                .Select(g => new GrindTypeDto(g.Id, g.Name))
                 .ToListAsync();
 
-            var categories = await _context.Categories
+            var grindTypes = grindTypeEntities.Select(g =>
+            {
+                var name = g.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? g.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? g.Name;
+                return new GrindTypeDto(g.Id, name);
+            }).ToList();
+
+            var categoryEntities = await _context.Categories
                 .AsNoTracking()
                 .Include(c => c.Translations)
                 .OrderBy(c => c.Slug)
                 .ToListAsync();
 
-            var categoryDtos = categories.Select(c => new CategoryDto(
-                c.Id,
-                // 2. Dinamik dil seçimi:
-                // Əvvəl istifadəçinin dilini yoxla, tapmasan İngiliscəni, onu da tapmasan "Unknown"
-                c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name 
-                ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name 
-                ?? "Unknown",
-                c.Slug,
-                c.IsCoffeeCategory,
-                c.ParentCategoryId == Guid.Empty ? null : c.ParentCategoryId))
-                .ToList();
+            var categories = categoryEntities.Select(c =>
+            {
+                var name = c.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.Name
+                        ?? c.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                        ?? "Unknown";
+                return new CategoryDto(c.Id, name, c.Slug, c.IsCoffeeCategory,
+                    c.ParentCategoryId == Guid.Empty ? null : c.ParentCategoryId);
+            }).ToList();
 
-            var origins = await _context.Origins
+            var originEntities = await _context.Origins
                 .AsNoTracking()
+                .Include(o => o.Translations)
                 .OrderBy(o => o.Name)
-                .Select(o => new OriginDto(o.Id, o.Name))
                 .ToListAsync();
 
-            var brands = await _context.Brands
+            var origins = originEntities.Select(o =>
+            {
+                var name = o.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? o.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? o.Name;
+                return new OriginDto(o.Id, name);
+            }).ToList();
+
+            var brandEntities = await _context.Brands
                 .AsNoTracking()
+                .Include(b => b.Translations)
                 .Where(b => b.IsActive)
                 .OrderBy(b => b.Name)
-                .Select(b => new BrandDto(b.Id, b.Name))
                 .ToListAsync();
 
-            var masterData = new MasterDataCollectionDto(
-                Attributes: attributes,
-                RoastLevels: roastLevels,
-                GrindTypes: grindTypes,
-                Categories: categoryDtos,
-                Origins: origins,
-                Brands: brands
-            );
+            var brands = brandEntities.Select(b =>
+            {
+                var name = b.Translations.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+                        ?? b.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? b.Name;
+                return new BrandDto(b.Id, name);
+            }).ToList();
 
-            return Ok(masterData);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error fetching master data");
-                            return BadRequest(new { message = ex.Message });
-                        }
-                    }
-                }
+            return Ok(new MasterDataCollectionDto(attributes, roastLevels, grindTypes, categories, origins, brands));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching master data");
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+}
 
 /// <summary>
 /// DTO for ProductAttributeValue master data

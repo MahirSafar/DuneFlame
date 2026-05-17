@@ -8,4 +8,5 @@ public class GrindType : BaseEntity
 
     // Navigation (M2M with ProductCoffeeProfile)
     public ICollection<ProductCoffeeProfile> Profiles { get; set; } = [];
+    public ICollection<GrindTypeTranslation> Translations { get; set; } = new List<GrindTypeTranslation>();
 }

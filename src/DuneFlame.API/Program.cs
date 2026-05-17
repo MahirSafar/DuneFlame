@@ -1,22 +1,16 @@
-﻿using DuneFlame.API.Middlewares;
-using DuneFlame.Application.Interfaces;
-using DuneFlame.Application.Validators;
+using DuneFlame.API.Middlewares;
+using DuneFlame.Application;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Infrastructure;
 using DuneFlame.Infrastructure.Authentication;
-using DuneFlame.Infrastructure.Configuration;
 using DuneFlame.Infrastructure.Persistence;
-using DuneFlame.Infrastructure.Products.Commands.UpdateProduct;
-using DuneFlame.Infrastructure.Products.Commands.UpdateProduct.Strategies;
-using DuneFlame.Infrastructure.Services;
-using FluentValidation;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.OAuth.Claims;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Versioning;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
@@ -24,48 +18,18 @@ using Serilog;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- 1. LOGGING (SERILOG) ---
+// --- 1. LOGGING ---
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
 
-// --- 2. DATABASE SETUP ---
-builder.Services.AddScoped<SlowQueryInterceptor>();
-builder.Services.AddDbContext<AppDbContext>((serviceProvider, opt) =>
-{
-    var slowQueryInterceptor = serviceProvider.GetService<SlowQueryInterceptor>();
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
-    if (slowQueryInterceptor != null)
-    {
-        opt.AddInterceptors(slowQueryInterceptor);
-    }
-});
+// --- 2. APPLICATION & INFRASTRUCTURE ---
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
 
-// --- 2.1 CACHING (HYBRIDCACHE WITH REDIS L2 BACKING STORE) ---
-var redisConnection = builder.Configuration.GetConnectionString("Redis");
-if (!string.IsNullOrEmpty(redisConnection))
-{
-    // Configure HybridCache with Redis as L2 backing store
-    builder.Services.AddHybridCache();
-
-    // Add StackExchangeRedis for distributed cache (L2 backing store)
-    builder.Services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = redisConnection;
-        options.InstanceName = "DuneFlame_";
-    });
-}
-else
-{
-    // Fallback: HybridCache with in-memory L2 store
-    builder.Services.AddHybridCache();
-    builder.Services.AddDistributedMemoryCache();
-}
-
-// --- 3. IDENTITY & SECURITY ---
+// --- 3. IDENTITY ---
 builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 {
     options.Password.RequireDigit = true;
@@ -76,7 +40,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     options.Lockout.MaxFailedAccessAttempts = 5;
     options.User.RequireUniqueEmail = true;
-    options.SignIn.RequireConfirmedEmail = true; 
+    options.SignIn.RequireConfirmedEmail = true;
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
@@ -91,55 +55,10 @@ builder.Services.AddRateLimiter(options =>
     options.AddFixedWindowLimiter("PublicPolicy", opt => { opt.PermitLimit = 100; opt.Window = TimeSpan.FromMinutes(1); });
 });
 
-// --- 5. DEPENDENCY INJECTION (BÜTÜN SERVİSLƏR) ---
+// --- 5. AUTHENTICATION & CORS ---
 var jwtSettings = new JwtSettings();
 builder.Configuration.Bind(JwtSettings.SectionName, jwtSettings);
-builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
-builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
-builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection(StripeSettings.SectionName));
-builder.Services.Configure<ClientUrls>(builder.Configuration.GetSection(ClientUrls.SectionName));
 
-// === CRITICAL: HTTP CONTEXT & CURRENCY PROVIDER ===
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ICurrencyProvider, CurrencyProvider>();
-builder.Services.AddScoped<ICartValidator, CartValidator>();
-
-// İnfrastruktur Servisləri (Xətanın həlli buradadır)
-builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
-builder.Services.AddScoped<IEmailService, SmtpEmailService>();
-builder.Services.AddScoped<IFileService, CloudStorageService>();
-
-// Biznes Servisləri
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IUserProfileService, UserProfileService>();
-builder.Services.AddScoped<INewsletterService, NewsletterService>();
-builder.Services.AddScoped<IContactService, ContactService>();
-builder.Services.AddScoped<ISettingsService, SettingsService>();
-builder.Services.AddScoped<IProductService, ProductService>();
-builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<IOriginService, OriginService>();
-builder.Services.AddScoped<ICartService, CartService>();
-builder.Services.AddScoped<IBasketService, BasketService>();
-builder.Services.AddScoped<IOrderService, OrderService>();
-builder.Services.AddScoped<IRewardService, RewardService>();
-builder.Services.AddScoped<IPaymentService, StripePaymentService>();
-builder.Services.AddScoped<IAdminUserService, AdminUserService>();
-builder.Services.AddScoped<IAdminContentService, AdminContentService>();
-builder.Services.AddScoped<IAdminOrderService, AdminOrderService>();
-builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
-builder.Services.AddScoped<IShippingService, ShippingService>();
-builder.Services.AddScoped<ISliderService, SliderService>();
-
-// Strategies and CQRS Handlers
-builder.Services.AddMediatR(config => {
-    config.RegisterServicesFromAssembly(typeof(UpdateProductCommandHandler).Assembly);
-});
-builder.Services.AddScoped<IProductUpdateStrategy, CoffeeProductUpdateStrategy>();
-builder.Services.AddScoped<IProductUpdateStrategy, EquipmentProductUpdateStrategy>();
-
-builder.Services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
-
-// --- 6. AUTHENTICATION & CORS ---
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -163,39 +82,37 @@ builder.Services.AddAuthentication(options =>
     googleOptions.ClientId = builder.Configuration["GoogleSettings:ClientId"]!;
     googleOptions.ClientSecret = builder.Configuration["GoogleSettings:ClientSecret"]!;
     googleOptions.CallbackPath = "/signin-google";
+    googleOptions.ClaimActions.MapJsonKey("urn:google:picture", "picture", "url");
 });
 
-// CORS Siyasəti
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("NextJsPolicy", policy =>
     {
-        policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" })
+        policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? ["http://localhost:3000"])
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
     });
 });
 
-// --- COOKIE POLICY (FIX FOR OAUTH CORRELATION FAILURES) ---
-// Relaxed SameSite policy for localhost development with mixed protocols (http/https)
 builder.Services.Configure<CookiePolicyOptions>(options =>
 {
     options.MinimumSameSitePolicy = SameSiteMode.Lax;
     options.Secure = CookieSecurePolicy.SameAsRequest;
 });
 
+// --- 6. MVC / API ---
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-        // Prevent StackOverflowException (SIGABRT/signal 6) if any object graph contains circular references
-        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
 builder.Services.AddOpenApi();
-
 builder.Services.AddApiVersioning(options =>
 {
     options.DefaultApiVersion = new Microsoft.AspNetCore.Mvc.ApiVersion(1, 0);
@@ -204,36 +121,31 @@ builder.Services.AddApiVersioning(options =>
     options.ApiVersionReader = new UrlSegmentApiVersionReader();
 });
 
-// --- 7. HEALTH CHECKS ---
 builder.Services.AddHealthChecks()
     .AddNpgSql(builder.Configuration.GetConnectionString("Postgres") ?? "", name: "db");
-// ==========================================
-// === BUILD APP (MIDDLEWARE BAŞLAYIR) ===
+
 // ==========================================
 var app = builder.Build();
 
-// 1. SEED (migration is handled inside DbInitializer.InitializeAsync)
 if (!app.Environment.IsEnvironment("Testing"))
 {
+    // Run DB migrations and seeding synchronously before the app starts serving traffic.
+    // This guarantees all tables and seed data exist before any request is handled.
+    // Cloud Run startup probe should allow enough time (set --startup-probe-timeout-seconds=120
+    // or use --min-instances=1 with a generous --startup-cpu-boost flag).
     try
     {
-        using var scope = app.Services.CreateScope();
-        await DbInitializer.InitializeAsync(scope.ServiceProvider);
+        await DbInitializer.InitializeAsync(app.Services);
         Log.Information("Database initialization completed successfully.");
     }
     catch (Exception ex)
     {
-        Log.Fatal(ex, "Database initialization failed. The application cannot start without a properly seeded database.");
-        throw;
+        Log.Fatal(ex, "Database initialization failed. The application will still start but may be in a degraded state.");
     }
 }
 
 app.UseSerilogRequestLogging();
-// Middleware Sıralaması (Kritik!)
 app.UseMiddleware<GlobalExceptionMiddleware>();
-
-// ForwardedHeaders must be early in the pipeline to properly handle X-Forwarded-Proto, X-Forwarded-For, etc.
-// This is essential for cloud environments like Cloud Run where requests come through reverse proxies
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
@@ -247,28 +159,21 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-
-// Configure static files for uploads directory
-// This allows serving uploaded images (sliders, products, etc.) from the /api/v1/uploads endpoint
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads")),
     RequestPath = "/api/v1/uploads"
 });
 
-// CORS Auth-dan qabaq gəlməlidir
 app.UseCors("NextJsPolicy");
 
 if (!app.Environment.IsEnvironment("Testing"))
-{
     app.UseRateLimiter();
-}
 
 app.UseCookiePolicy();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Health Check Endpoint
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
     ResultStatusCodes =
@@ -286,7 +191,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 });
 
 app.MapControllers();
-
 app.Run();
 
-public partial class Program { }
+
+

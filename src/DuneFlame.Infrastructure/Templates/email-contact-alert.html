@@ -1,0 +1,36 @@
+<div style="background-color:#FBEDDC; border-left:4px solid #CC3323; padding:20px; margin-bottom:25px; border-radius:4px;">
+    <p style="margin:0; color:#2B1B13; font-weight:bold;">&#9888;&#65039; New Customer Support Request</p>
+</div>
+
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px; border-collapse:collapse;">
+    <tr>
+        <td style="padding:12px 0; border-bottom:1px solid #FBEDDC;">
+            <strong style="color:#2B1B13;">Customer Name:</strong><br/>
+            <span style="color:#2B1B13;">{{Name}}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding:12px 0; border-bottom:1px solid #FBEDDC;">
+            <strong style="color:#2B1B13;">Email Address:</strong><br/>
+            <a href="mailto:{{Email}}" style="color:#CC3323; text-decoration:none;">{{Email}}</a>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding:12px 0; border-bottom:1px solid #FBEDDC;">
+            <strong style="color:#2B1B13;">Subject:</strong><br/>
+            <span style="color:#2B1B13;">{{Subject}}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding:20px 0;">
+            <strong style="color:#2B1B13;">Message:</strong><br/>
+            <div style="margin-top:10px; padding:15px; background-color:#FBEDDC; border-radius:6px; color:#2B1B13; line-height:1.6;">
+                {{Message}}
+            </div>
+        </td>
+    </tr>
+</table>
+
+<p style="margin:0; text-align:center; color:#666666; font-size:13px;">
+    Received: {{ReceivedAt}} UTC
+</p>

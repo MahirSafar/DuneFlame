@@ -2,24 +2,22 @@ using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Persistence;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Stripe;
 using Stripe.Checkout;
-using System.Text.Json;
 
 namespace DuneFlame.Infrastructure.Services;
 
 public class StripePaymentService(
     IOptions<StripeSettings> stripeOptions,
     AppDbContext context,
-    IDistributedCache cache,
+    IBasketService basketService,
     ILogger<StripePaymentService> logger) : IPaymentService
 {
     private readonly StripeSettings _stripeSettings = stripeOptions.Value;
     private readonly AppDbContext _context = context;
-    private readonly IDistributedCache _cache = cache;
+    private readonly IBasketService _basketService = basketService;
     private readonly ILogger<StripePaymentService> _logger = logger;
 
     /// <summary>
@@ -218,12 +216,8 @@ public class StripePaymentService(
     {
         try
         {
-            // Get basket from cache
-            var basketJson = await _cache.GetStringAsync(basketId);
-            var basket = string.IsNullOrEmpty(basketJson)
-                ? new DuneFlame.Application.DTOs.Basket.CustomerBasketDto { Id = basketId, Items = [] }
-                : JsonSerializer.Deserialize<DuneFlame.Application.DTOs.Basket.CustomerBasketDto>(basketJson) 
-                    ?? new DuneFlame.Application.DTOs.Basket.CustomerBasketDto { Id = basketId, Items = [] };
+            // Get basket from PostgreSQL
+            var basket = await _basketService.GetBasketAsync(basketId);
 
             // ZERO-PAYMENT / DUMMY ID CHECK: If basket already has an internal payment intent ID, return it immediately
             // without calling Stripe API. This handles orders where rewards covered the entire amount.
@@ -381,13 +375,8 @@ public class StripePaymentService(
             var validatedClientSecret = ValidateAndReturnClientSecret(paymentIntent.ClientSecret, paymentIntentId);
             basket.ClientSecret = validatedClientSecret;
 
-            // Persist basket back to cache
-            var updatedBasketJson = JsonSerializer.Serialize(basket);
-            var cacheOptions = new DistributedCacheEntryOptions
-            {
-                AbsoluteExpiration = DateTimeOffset.UtcNow.AddDays(30)
-            };
-            await _cache.SetStringAsync(basketId, updatedBasketJson, cacheOptions);
+            // Persist basket back to PostgreSQL
+            await _basketService.UpdateBasketAsync(basket);
 
             _logger.LogInformation(
                 "PaymentIntent {PaymentIntentId} created/updated for basket {BasketId} with amount {Amount}. " +

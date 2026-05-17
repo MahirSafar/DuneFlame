@@ -6,6 +6,7 @@ public class ApplicationUser : IdentityUser<Guid>
 {
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
+    public string? ProfileImageUrl { get; set; }
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<ExternalLogin> ExternalLogins { get; set; } = [];

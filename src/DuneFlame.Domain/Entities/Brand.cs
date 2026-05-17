@@ -11,4 +11,5 @@ public class Brand : BaseEntity
 
     // Navigation Properties
     public ICollection<Product> Products { get; set; } = [];
+    public ICollection<BrandTranslation> Translations { get; set; } = new List<BrandTranslation>();
 }

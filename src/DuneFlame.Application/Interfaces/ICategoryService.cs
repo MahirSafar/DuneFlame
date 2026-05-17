@@ -38,5 +38,6 @@ public record CategoryResponse(
     bool IsCoffeeCategory,
     Guid ParentCategoryId,
     IEnumerable<CategoryResponse> Children,
+    int DisplayOrder = 0,
     string? BreadcrumbPath = null
 );

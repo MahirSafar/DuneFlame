@@ -33,4 +33,5 @@ public class Country : BaseEntity
     // Navigation properties
     public ICollection<City> Cities { get; set; } = [];
     public ICollection<ShippingRate> ShippingRates { get; set; } = [];
+    public ICollection<CountryTranslation> Translations { get; set; } = [];
 }

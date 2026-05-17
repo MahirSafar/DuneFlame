@@ -6,6 +6,7 @@ public class Category : BaseEntity
 {
     public string Slug { get; set; } = string.Empty;
     public bool IsCoffeeCategory { get; set; } = false;
+    public int DisplayOrder { get; set; } = 0;
 
     // Hierarchy — NON-NULLABLE. Root category uses Guid.Empty as sentinel.
     // All other categories point to a real parent Category.Id.

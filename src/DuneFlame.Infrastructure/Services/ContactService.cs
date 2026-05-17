@@ -3,6 +3,7 @@ using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.User;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Enums;
 using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +21,9 @@ public class ContactService(AppDbContext context, IEmailService emailService) : 
         {
             Name = request.Name,
             Email = request.Email,
+            Phone = request.Phone,
             Subject = request.Subject,
+            InquiryType = request.InquiryType,
             Message = request.Message,
             IpAddress = ipAddress,
             IsRead = false
@@ -33,37 +36,44 @@ public class ContactService(AppDbContext context, IEmailService emailService) : 
         await _emailService.SendAdminContactAlertAsync(message);
     }
 
-    public async Task<PagedResult<ContactMessageResponse>> GetAllAdminAsync(int pageNumber = 1, int pageSize = 10, string? search = null, bool? isRead = null)
+    public async Task<PagedResult<ContactMessageResponse>> GetAllAdminAsync(AdminContactsQuery query)
     {
-        var query = _context.ContactMessages.AsQueryable();
+        var query2 = _context.ContactMessages.AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(search))
+        if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var searchTerm = search.ToLower();
-            query = query.Where(m => 
+            var searchTerm = query.Search.ToLower();
+            query2 = query2.Where(m =>
                 m.Name.ToLower().Contains(searchTerm) ||
                 m.Email.ToLower().Contains(searchTerm) ||
-                m.Subject.ToLower().Contains(searchTerm) ||
+                (m.Subject != null && m.Subject.ToLower().Contains(searchTerm)) ||
                 m.Message.ToLower().Contains(searchTerm));
         }
 
-        if (isRead.HasValue)
+        if (query.IsRead.HasValue)
         {
-            query = query.Where(m => m.IsRead == isRead.Value);
+            query2 = query2.Where(m => m.IsRead == query.IsRead.Value);
         }
 
-        var totalItems = await query.CountAsync();
-        var totalPages = (int)Math.Ceiling(totalItems / (double)pageSize);
+        if (query.InquiryType.HasValue)
+        {
+            query2 = query2.Where(m => m.InquiryType == query.InquiryType.Value);
+        }
 
-        var items = await query
+        var totalItems = await query2.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
+        var items = await query2
             .OrderByDescending(m => m.CreatedAt)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
+            .Skip((query.PageNumber - 1) * query.PageSize)
+            .Take(query.PageSize)
             .Select(m => new ContactMessageResponse(
                 m.Id,
                 m.Name,
                 m.Email,
+                m.Phone,
                 m.Subject,
+                m.InquiryType,
                 m.Message,
                 m.IpAddress,
                 m.IsRead,
@@ -71,7 +81,7 @@ public class ContactService(AppDbContext context, IEmailService emailService) : 
                 m.CreatedAt))
             .ToListAsync();
 
-        return new PagedResult<ContactMessageResponse>(items, totalItems, pageNumber, pageSize, totalPages);
+        return new PagedResult<ContactMessageResponse>(items, totalItems, query.PageNumber, query.PageSize, totalPages);
     }
 
     public async Task MarkAsReadAsync(Guid id)

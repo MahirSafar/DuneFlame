@@ -24,9 +24,7 @@
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.2.0" />
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.1" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
-		<PackageReference Include="StackExchange.Redis" Version="2.10.1" />
 		<PackageReference Include="Stripe.net" Version="50.1.0" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
 	</ItemGroup>
@@ -34,6 +32,22 @@
 	<ItemGroup>
 	  <Folder Include="BackgroundJobs\" />
 	  <Folder Include="Repositories\" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <EmbeddedResource Include="Templates\email-template.html" />
+		<EmbeddedResource Include="Templates\email-verification.html" />
+		<EmbeddedResource Include="Templates\email-password-reset.html" />
+		<EmbeddedResource Include="Templates\email-newsletter-verification.html" />
+		<EmbeddedResource Include="Templates\email-newsletter-subscribed.html" />
+		<EmbeddedResource Include="Templates\email-newsletter-admin-report.html" />
+		<EmbeddedResource Include="Templates\email-contact-alert.html" />
+		<EmbeddedResource Include="Templates\email-order-paid.html" />
+		<EmbeddedResource Include="Templates\email-order-shipped.html" />
+		<EmbeddedResource Include="Templates\email-order-delivered.html" />
+		<EmbeddedResource Include="Templates\email-order-cancelled.html" />
+		<EmbeddedResource Include="Templates\email-wholesale-alert.html" />
+		<EmbeddedResource Include="Templates\email-wholesale-confirmation.html" />
 	</ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-using DuneFlame.Application.DTOs.Shipping;
+﻿using DuneFlame.Application.DTOs.Shipping;
 using DuneFlame.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -6,8 +6,7 @@ namespace DuneFlame.API.Controllers;
 
 /// <summary>
 /// Public API controller for shipping-related operations.
-/// Provides endpoints for fetching countries, cities, and shipping rates for checkout.
-/// No authentication required for these endpoints as they provide public reference data.
+/// Country/City names are resolved dynamically from translations based on the Accept-Language header.
 /// </summary>
 [Route("api/v1/shipping")]
 [ApiController]
@@ -15,13 +14,38 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
 {
     private readonly IShippingService _shippingService = shippingService;
 
-    /// <summary>
-    /// Gets all active countries with their shipping rates.
-    /// Used by frontend to populate the country dropdown in checkout.
-    /// </summary>
-    /// <returns>List of countries with shipping rates grouped by currency.</returns>
-    /// <response code="200">Successfully retrieved countries with shipping rates.</response>
-    /// <response code="500">Internal server error.</response>
+    // --------------- helpers ---------------
+
+    /// <summary>Extracts the 2-char language code from Accept-Language header (defaults to "en").</summary>
+    private string ExtractLanguage()
+    {
+        try
+        {
+            var header = Request.Headers["Accept-Language"].ToString();
+            if (string.IsNullOrWhiteSpace(header)) return "en";
+            var primary = header.Split(',')[0].Trim();
+            var lang = primary.Length >= 2 ? primary[..2].ToLower() : "en";
+            return lang == "ar" ? "ar" : "en";
+        }
+        catch { return "en"; }
+    }
+
+    /// <summary>Resolves the display name for a Country from its Translations collection.</summary>
+    private static string ResolveCountryName(
+        DuneFlame.Domain.Entities.Country country, string lang)
+        => country.Translations?.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+           ?? country.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+           ?? country.Name;
+
+    /// <summary>Resolves the display name for a City from its Translations collection.</summary>
+    private static string ResolveCityName(
+        DuneFlame.Domain.Entities.City city, string lang)
+        => city.Translations?.FirstOrDefault(t => t.LanguageCode == lang)?.TranslatedName
+           ?? city.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+           ?? city.Name;
+
+    // --------------- endpoints ---------------
+
     [HttpGet("countries")]
     [ProducesResponseType(typeof(List<CountryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -29,12 +53,13 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
     {
         try
         {
+            var lang = ExtractLanguage();
             var countries = await _shippingService.GetAllCountriesAsync(includeInactive: false);
 
             var countryDtos = countries.Select(c => new CountryDto
             {
                 Id = c.Id,
-                Name = c.Name,
+                Name = ResolveCountryName(c, lang),
                 Code = c.Code,
                 CityCount = c.Cities.Count,
                 ShippingRates = c.ShippingRates
@@ -55,15 +80,6 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
         }
     }
 
-    /// <summary>
-    /// Gets all cities for a specific country.
-    /// Used by frontend to populate the city dropdown after country selection.
-    /// </summary>
-    /// <param name="countryId">The ID of the country to retrieve cities for.</param>
-    /// <returns>List of cities in the specified country.</returns>
-    /// <response code="200">Successfully retrieved cities.</response>
-    /// <response code="404">Country not found.</response>
-    /// <response code="500">Internal server error.</response>
     [HttpGet("countries/{countryId:guid}/cities")]
     [ProducesResponseType(typeof(List<CityDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -72,18 +88,17 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
     {
         try
         {
+            var lang = ExtractLanguage();
             var country = await _shippingService.GetCountryByIdAsync(countryId);
 
             if (country == null)
-            {
                 return NotFound(new { message = $"Country with ID '{countryId}' not found." });
-            }
 
             var cityDtos = country.Cities
                 .Select(c => new CityDto
                 {
                     Id = c.Id,
-                    Name = c.Name,
+                    Name = ResolveCityName(c, lang),
                     CountryId = c.CountryId
                 })
                 .OrderBy(c => c.Name)
@@ -98,15 +113,6 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
         }
     }
 
-    /// <summary>
-    /// Gets shipping information for a specific country by country code.
-    /// Alternative endpoint that accepts country code instead of ID.
-    /// </summary>
-    /// <param name="code">ISO 3166-1 alpha-2 country code (e.g., "US", "AE", "CA").</param>
-    /// <returns>Country information with shipping rates and city count.</returns>
-    /// <response code="200">Successfully retrieved country shipping information.</response>
-    /// <response code="404">Country code not found.</response>
-    /// <response code="500">Internal server error.</response>
     [HttpGet("countries/code/{code}")]
     [ProducesResponseType(typeof(CountryDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -116,21 +122,18 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
         try
         {
             if (string.IsNullOrWhiteSpace(code) || code.Length != 2)
-            {
                 return BadRequest(new { message = "Country code must be exactly 2 characters (ISO 3166-1 alpha-2)." });
-            }
 
+            var lang = ExtractLanguage();
             var country = await _shippingService.GetCountryByCodeAsync(code);
 
             if (country == null)
-            {
                 return NotFound(new { message = $"Country with code '{code}' not found." });
-            }
 
             var countryDto = new CountryDto
             {
                 Id = country.Id,
-                Name = country.Name,
+                Name = ResolveCountryName(country, lang),
                 Code = country.Code,
                 CityCount = country.Cities.Count,
                 ShippingRates = country.ShippingRates
@@ -151,16 +154,6 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
         }
     }
 
-    /// <summary>
-    /// Calculates dynamic shipping cost for Express Checkout (Apple Pay/Google Pay).
-    /// Used by frontend to update shipping price when user selects a shipping address.
-    /// Applies promotion logic (free shipping for high-value orders).
-    /// </summary>
-    /// <param name="request">Shipping calculation request containing country code, currency, and subtotal.</param>
-    /// <returns>Calculated shipping price and availability status.</returns>
-    /// <response code="200">Successfully calculated shipping cost.</response>
-    /// <response code="400">Invalid request parameters.</response>
-    /// <response code="500">Internal server error.</response>
     [HttpPost("calculate")]
     [ProducesResponseType(typeof(CalculateShippingResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -169,29 +162,19 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
     {
         try
         {
-            // Validate request
             if (request == null || string.IsNullOrWhiteSpace(request.CountryCode) || string.IsNullOrWhiteSpace(request.Currency))
-            {
                 return BadRequest(new { message = "CountryCode and Currency are required." });
-            }
 
             if (request.Subtotal < 0)
-            {
                 return BadRequest(new { message = "Subtotal cannot be negative." });
-            }
 
-            // Normalize country code to 2 characters (following copilot instructions)
-            string normalizedCountryCode = request.CountryCode.Length > 2 
-                ? request.CountryCode.Substring(0, 2) 
+            string normalizedCountryCode = request.CountryCode.Length > 2
+                ? request.CountryCode[..2]
                 : request.CountryCode;
 
-            // Validate and parse currency
             if (!Enum.TryParse<DuneFlame.Domain.Enums.Currency>(request.Currency, ignoreCase: true, out var currency))
-            {
                 return BadRequest(new { message = "Invalid currency. Supported currencies: USD, AED." });
-            }
 
-            // Check if country exists and is active
             var country = await _shippingService.GetCountryByCodeAsync(normalizedCountryCode);
             if (country == null || !country.IsActive)
             {
@@ -205,11 +188,8 @@ public class ShippingController(IShippingService shippingService) : ControllerBa
                 });
             }
 
-            // Calculate shipping cost with promotion logic
             var shippingPrice = await _shippingService.GetShippingCostWithPromotionAsync(
-                normalizedCountryCode,
-                currency,
-                request.Subtotal);
+                normalizedCountryCode, currency, request.Subtotal);
 
             return Ok(new CalculateShippingResponse
             {

@@ -6,4 +6,5 @@ public class ProductAttribute : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
     public ICollection<ProductAttributeValue> Values { get; set; } = [];
+    public ICollection<ProductAttributeTranslation> Translations { get; set; } = new List<ProductAttributeTranslation>();
 }

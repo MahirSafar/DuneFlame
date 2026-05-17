@@ -22,14 +22,24 @@ public class RewardController(IRewardService rewardService) : ControllerBase
         return userId;
     }
 
+    private string GetLanguageCode()
+    {
+        var header = Request.Headers["Accept-Language"].ToString();
+        if (string.IsNullOrWhiteSpace(header)) return "en";
+        var lang = header.Split(',')[0].Trim();
+        lang = lang.Length >= 2 ? lang[..2].ToLower() : "en";
+        return lang == "ar" ? "ar" : "en";
+    }
+
     [HttpGet("me")]
     public async Task<IActionResult> GetMyRewardWallet()
     {
         try
         {
             var userId = GetUserId();
+            var lang = GetLanguageCode();
             var stats = await _rewardService.GetWalletAsync(userId);
-            var transactions = await _rewardService.GetTransactionsAsync(userId);
+            var transactions = await _rewardService.GetTransactionsAsync(userId, lang);
 
             return Ok(new { stats, transactions });
         }

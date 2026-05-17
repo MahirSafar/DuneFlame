@@ -8,4 +8,5 @@ public class Origin : BaseEntity
 
     // Relationship: 1-to-Many with ProductCoffeeProfile
     public ICollection<ProductCoffeeProfile> Profiles { get; set; } = new List<ProductCoffeeProfile>();
+    public ICollection<OriginTranslation> Translations { get; set; } = new List<OriginTranslation>();
 }

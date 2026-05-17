@@ -1,6 +1,9 @@
 using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
-using DuneFlame.Application.Interfaces;
+using DuneFlame.Application.Products.Queries.GetAllProducts;
+using DuneFlame.Application.Products.Queries.GetProductById;
+using DuneFlame.Application.Products.Queries.GetProductBySlug;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,9 +12,9 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/products")]
 [ApiController]
 [AllowAnonymous]
-public class PublicProductController(IProductService productService) : ControllerBase
+public class PublicProductController(IMediator mediator) : ControllerBase
 {
-    private readonly IProductService _productService = productService;
+    private readonly IMediator _mediator = mediator;
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<ProductResponse>>> GetAllProducts(
@@ -28,17 +31,18 @@ public class PublicProductController(IProductService productService) : Controlle
     {
         try
         {
-            var result = await _productService.GetAllAsync(
-                pageNumber: pageNumber,
-                pageSize: pageSize,
-                sortBy: sortBy,
-                search: search,
-                categoryId: categoryId,
-                minPrice: minPrice,
-                maxPrice: maxPrice,
-                brandId: brandId,
-                roastLevelIds: roastLevelIds,
-                originIds: originIds);
+            var result = await _mediator.Send(new GetAllProductsQuery(
+                PageNumber: pageNumber,
+                PageSize: pageSize,
+                SortBy: sortBy,
+                Search: search,
+                CategoryId: categoryId,
+                MinPrice: minPrice,
+                MaxPrice: maxPrice,
+                BrandId: brandId,
+                RoastLevelIds: roastLevelIds,
+                OriginIds: originIds,
+                AdminView: false));
 
             return Ok(result);
         }
@@ -48,47 +52,44 @@ public class PublicProductController(IProductService productService) : Controlle
         }
     }
 
-        [HttpGet("{idOrSlug}")]
-        public async Task<ActionResult<ProductResponse>> GetProduct(string idOrSlug)
+    [HttpGet("{idOrSlug}")]
+    public async Task<ActionResult<ProductResponse>> GetProduct(string idOrSlug)
+    {
+        try
         {
-            try
-            {
-                // Try to parse as GUID first
-                if (Guid.TryParse(idOrSlug, out var productId))
-                {
-                    var product = await _productService.GetByIdAsync(productId);
-                    return Ok(product);
-                }
+            ProductResponse product;
+            if (Guid.TryParse(idOrSlug, out var productId))
+                product = await _mediator.Send(new GetProductByIdQuery(productId));
+            else
+                product = await _mediator.Send(new GetProductBySlugQuery(idOrSlug));
 
-                // Otherwise, treat as slug
-                var productBySlug = await _productService.GetBySlugAsync(idOrSlug);
-                return Ok(productBySlug);
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
+            return Ok(product);
         }
-
-        [HttpGet("by-slug/{slug}")]
-        public async Task<ActionResult<ProductResponse>> GetProductBySlug(string slug)
+        catch (KeyNotFoundException ex)
         {
-            try
-            {
-                var product = await _productService.GetBySlugAsync(slug);
-                return Ok(product);
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
+
+    [HttpGet("by-slug/{slug}")]
+    public async Task<ActionResult<ProductResponse>> GetProductBySlug(string slug)
+    {
+        try
+        {
+            var product = await _mediator.Send(new GetProductBySlugQuery(slug));
+            return Ok(product);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+}

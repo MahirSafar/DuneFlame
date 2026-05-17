@@ -1,0 +1,11 @@
+global using System;
+global using System.Collections.Generic;
+global using System.Threading.Tasks;
+global using DuneFlame.Domain.Entities;
+global using DuneFlame.Domain.Enums;
+global using DuneFlame.Domain.Exceptions;
+global using DuneFlame.Application.Interfaces;
+global using DuneFlame.Application.DTOs.Common;
+global using DuneFlame.Infrastructure.Persistence;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.Extensions.Logging;

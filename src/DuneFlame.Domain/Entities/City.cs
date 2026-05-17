@@ -21,6 +21,7 @@ public class City : BaseEntity
     /// </summary>
     public Guid CountryId { get; set; }
 
-    // Navigation property
+    // Navigation properties
     public Country? Country { get; set; }
+    public ICollection<CityTranslation> Translations { get; set; } = [];
 }

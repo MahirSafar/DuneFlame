@@ -275,7 +275,11 @@ public class ProductService(
             .Include(pv => pv.Prices)
             .Include(pv => pv.Options)
                 .ThenInclude(o => o.ProductAttributeValue)
+                    .ThenInclude(av => av.Translations)
+            .Include(pv => pv.Options)
+                .ThenInclude(o => o.ProductAttributeValue)
                     .ThenInclude(av => av.ProductAttribute)
+                        .ThenInclude(a => a.Translations)
             .Include(pv => pv.Product)
                 .ThenInclude(p => p.Translations)
             .Include(pv => pv.Product)
@@ -283,12 +287,15 @@ public class ProductService(
             .Include(pv => pv.Product)
                 .ThenInclude(p => p.CoffeeProfile)
                     .ThenInclude(cp => cp!.Origin)
+                        .ThenInclude(o => o!.Translations)
             .Include(pv => pv.Product)
                 .ThenInclude(p => p.CoffeeProfile)
                     .ThenInclude(cp => cp!.RoastLevels)
+                        .ThenInclude(r => r.Translations)
             .Include(pv => pv.Product)
                 .ThenInclude(p => p.CoffeeProfile)
                     .ThenInclude(cp => cp!.GrindTypes)
+                        .ThenInclude(g => g.Translations)
             .AsSingleQuery()
             .Where(pv => pv.Product != null && pv.Product.IsActive && pv.StockQuantity > 0);
 
@@ -331,6 +338,10 @@ public class ProductService(
         var coffeeProfile = bestVariant.Product.CoffeeProfile;
         var isCoffee = coffeeProfile != null;
 
+        var upsellOriginName = coffeeProfile?.Origin?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                            ?? coffeeProfile?.Origin?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                            ?? coffeeProfile?.Origin?.Name;
+
         return new DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto
         {
             ProductId = bestVariant.ProductId,
@@ -344,13 +355,33 @@ public class ProductService(
             AvailablePrices = pricesDict,
             HasVariants = bestVariant.Options != null && bestVariant.Options.Any(),
             IsCoffee = isCoffee,
-            OriginName = coffeeProfile?.Origin?.Name,
-            RoastLevelNames = isCoffee ? coffeeProfile!.RoastLevels.Select(r => r.Name).ToList() : null,
-            GrindTypeNames = isCoffee ? coffeeProfile!.GrindTypes.Select(g => g.Name).ToList() : null,
-            Options = bestVariant.Options?.Select(o => new DuneFlame.Application.DTOs.Product.VariantOptionDto(
-                o.ProductAttributeValue?.ProductAttribute?.Name ?? string.Empty,
-                o.ProductAttributeValue?.Value ?? string.Empty
-            )).ToList(),
+            OriginName = upsellOriginName,
+            RoastLevelNames = isCoffee ? coffeeProfile!.RoastLevels.Select(r =>
+                r.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                ?? r.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                ?? r.Name).ToList() : null,
+            GrindTypeNames = isCoffee ? coffeeProfile!.GrindTypes.Select(g =>
+                g.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                ?? g.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                ?? g.Name).ToList() : null,
+            Options = bestVariant.Options?.Select(o =>
+            {
+                var attrName = o.ProductAttributeValue?.ProductAttribute?.Translations
+                    ?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                    ?? o.ProductAttributeValue?.ProductAttribute?.Translations
+                    ?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                    ?? o.ProductAttributeValue?.ProductAttribute?.Name
+                    ?? string.Empty;
+
+                var attrValue = o.ProductAttributeValue?.Translations
+                    ?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedValue
+                    ?? o.ProductAttributeValue?.Translations
+                    ?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedValue
+                    ?? o.ProductAttributeValue?.Value
+                    ?? string.Empty;
+
+                return new DuneFlame.Application.DTOs.Product.VariantOptionDto(attrName, attrValue);
+            }).ToList(),
         };
     }
 
@@ -370,6 +401,7 @@ public class ProductService(
                     .Include(p => p.Category)
                         .ThenInclude(c => c.Translations)
                     .Include(p => p.Brand)
+                        .ThenInclude(b => b!.Translations)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
                     .Include(p => p.EquipmentProfile)
@@ -378,13 +410,25 @@ public class ProductService(
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Options)
                             .ThenInclude(o => o.ProductAttributeValue)
+                                .ThenInclude(av => av.Translations)
+                    .Include(p => p.Variants)
+                        .ThenInclude(v => v.Options)
+                            .ThenInclude(o => o.ProductAttributeValue)
                                 .ThenInclude(av => av.ProductAttribute)
+                                    .ThenInclude(a => a.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.Origin)
+                            .ThenInclude(o => o!.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.RoastLevels)
                     .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.RoastLevels)
+                            .ThenInclude(r => r.Translations)
+                    .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.GrindTypes)
+                    .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.GrindTypes)
+                            .ThenInclude(g => g.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.FlavourNotes)
                             .ThenInclude(fn => fn.Translations)
@@ -423,6 +467,7 @@ public class ProductService(
                     .Include(p => p.Category)
                         .ThenInclude(c => c.Translations)
                     .Include(p => p.Brand)
+                        .ThenInclude(b => b!.Translations)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
                     .Include(p => p.EquipmentProfile)
@@ -431,13 +476,25 @@ public class ProductService(
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Options)
                             .ThenInclude(o => o.ProductAttributeValue)
+                                .ThenInclude(av => av.Translations)
+                    .Include(p => p.Variants)
+                        .ThenInclude(v => v.Options)
+                            .ThenInclude(o => o.ProductAttributeValue)
                                 .ThenInclude(av => av.ProductAttribute)
+                                    .ThenInclude(a => a.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.Origin)
+                            .ThenInclude(o => o!.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.RoastLevels)
                     .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.RoastLevels)
+                            .ThenInclude(r => r.Translations)
+                    .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.GrindTypes)
+                    .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.GrindTypes)
+                            .ThenInclude(g => g.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.FlavourNotes)
                             .ThenInclude(fn => fn.Translations)
@@ -490,7 +547,9 @@ public class ProductService(
             {
                 var query = _context.Products
                     .Include(p => p.Category)
+                        .ThenInclude(c => c.Translations)
                     .Include(p => p.Brand)
+                        .ThenInclude(b => b!.Translations)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
                     .Include(p => p.EquipmentProfile)
@@ -499,13 +558,25 @@ public class ProductService(
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Options)
                             .ThenInclude(o => o.ProductAttributeValue)
+                                .ThenInclude(av => av.Translations)
+                    .Include(p => p.Variants)
+                        .ThenInclude(v => v.Options)
+                            .ThenInclude(o => o.ProductAttributeValue)
                                 .ThenInclude(av => av.ProductAttribute)
+                                    .ThenInclude(a => a.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.Origin)
+                            .ThenInclude(o => o!.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.RoastLevels)
                     .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.RoastLevels)
+                            .ThenInclude(r => r.Translations)
+                    .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.GrindTypes)
+                    .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.GrindTypes)
+                            .ThenInclude(g => g.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.FlavourNotes)
                             .ThenInclude(fn => fn.Translations)
@@ -640,6 +711,7 @@ public class ProductService(
                     .Include(p => p.Category)
                         .ThenInclude(c => c.Translations)
                     .Include(p => p.Brand)
+                        .ThenInclude(b => b!.Translations)
                     .Include(p => p.Translations)
                     .Include(p => p.Images)
                     .Include(p => p.EquipmentProfile)
@@ -648,13 +720,25 @@ public class ProductService(
                     .Include(p => p.Variants)
                         .ThenInclude(v => v.Options)
                             .ThenInclude(o => o.ProductAttributeValue)
+                                .ThenInclude(av => av.Translations)
+                    .Include(p => p.Variants)
+                        .ThenInclude(v => v.Options)
+                            .ThenInclude(o => o.ProductAttributeValue)
                                 .ThenInclude(av => av.ProductAttribute)
+                                    .ThenInclude(a => a.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.Origin)
+                            .ThenInclude(o => o!.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.RoastLevels)
                     .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.RoastLevels)
+                            .ThenInclude(r => r.Translations)
+                    .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.GrindTypes)
+                    .Include(p => p.CoffeeProfile)
+                        .ThenInclude(cp => cp.GrindTypes)
+                            .ThenInclude(g => g.Translations)
                     .Include(p => p.CoffeeProfile)
                         .ThenInclude(cp => cp.FlavourNotes)
                             .ThenInclude(fn => fn.Translations)
@@ -825,7 +909,7 @@ public class ProductService(
 
     private static ProductResponse MapToResponse(Product product, Currency currentCurrency, string languageCode)
     {
-        // 1. Resolve Translations safely
+        // 1. Resolve product name/description translations
         var translation = product.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)
                           ?? product.Translations?.FirstOrDefault(t => t.LanguageCode == "en")
                           ?? product.Translations?.FirstOrDefault();
@@ -837,11 +921,21 @@ public class ProductService(
         ProductCoffeeProfileDto? coffeeProfileDto = null;
         if (product.CoffeeProfile != null)
         {
+            var originName = product.CoffeeProfile.Origin?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                          ?? product.CoffeeProfile.Origin?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                          ?? product.CoffeeProfile.Origin?.Name;
+
             coffeeProfileDto = new ProductCoffeeProfileDto(
                 OriginId: product.CoffeeProfile.OriginId,
-                OriginName: product.CoffeeProfile.Origin?.Name,
-                RoastLevelNames: product.CoffeeProfile.RoastLevels?.Select(r => r.Name).ToList() ?? new List<string>(),
-                GrindTypeNames: product.CoffeeProfile.GrindTypes?.Select(g => g.Name).ToList() ?? new List<string>(),
+                OriginName: originName,
+                RoastLevelNames: product.CoffeeProfile.RoastLevels?.Select(r =>
+                    r.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                    ?? r.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                    ?? r.Name).ToList() ?? new List<string>(),
+                GrindTypeNames: product.CoffeeProfile.GrindTypes?.Select(g =>
+                    g.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                    ?? g.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                    ?? g.Name).ToList() ?? new List<string>(),
                 RoastLevelIds: product.CoffeeProfile.RoastLevels?.Select(r => r.Id).ToList() ?? new List<Guid>(),
                 GrindTypeIds: product.CoffeeProfile.GrindTypes?.Select(g => g.Id).ToList() ?? new List<Guid>(),
                 FlavourNotes: product.CoffeeProfile.FlavourNotes?.OrderBy(fn => fn.DisplayOrder).Select(fn =>
@@ -882,13 +976,31 @@ public class ProductService(
                 Sku: v.Sku,
                 Price: activePrice,
                 StockQuantity: v.StockQuantity,
-                Options: v.Options?.Select(o => new VariantOptionDto(
-                    AttributeName: o.ProductAttributeValue?.ProductAttribute?.Name ?? string.Empty,
-                    Value: o.ProductAttributeValue?.Value ?? string.Empty
-                )).ToList() ?? new List<VariantOptionDto>(),
+                Options: v.Options?.Select(o =>
+                {
+                    var attrName = o.ProductAttributeValue?.ProductAttribute?.Translations
+                        ?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                        ?? o.ProductAttributeValue?.ProductAttribute?.Translations
+                        ?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                        ?? o.ProductAttributeValue?.ProductAttribute?.Name
+                        ?? string.Empty;
+
+                    var attrValue = o.ProductAttributeValue?.Translations
+                        ?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedValue
+                        ?? o.ProductAttributeValue?.Translations
+                        ?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedValue
+                        ?? o.ProductAttributeValue?.Value
+                        ?? string.Empty;
+
+                    return new VariantOptionDto(AttributeName: attrName, Value: attrValue);
+                }).ToList() ?? new List<VariantOptionDto>(),
                 Prices: mappedPrices
             );
         }).ToList() ?? new List<VariantDto>();
+
+        var brandName = product.Brand?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                     ?? product.Brand?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                     ?? product.Brand?.Name;
 
         return new ProductResponse(
             Id: product.Id,
@@ -901,7 +1013,7 @@ public class ProductService(
                           ?? product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name
                           ?? "Unknown",
             BrandId: product.BrandId,
-            BrandName: product.Brand?.Name,
+            BrandName: brandName,
             Translations: product.Translations?.Select(t => new ProductTranslationDto(
                  LanguageCode: t.LanguageCode,
                  Name: t.Name,

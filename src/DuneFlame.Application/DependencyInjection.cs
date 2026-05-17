@@ -1,0 +1,15 @@
+using DuneFlame.Application.Validators;
+using FluentValidation;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DuneFlame.Application;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddApplication(this IServiceCollection services)
+    {
+        services.AddValidatorsFromAssemblyContaining<UpdateProfileValidator>();
+
+        return services;
+    }
+}

@@ -9,13 +9,19 @@ namespace DuneFlame.Infrastructure.Services;
 /// Cloud Storage Service for uploading files to Google Cloud Storage.
 /// Returns public URLs in the format: https://storage.googleapis.com/{bucketName}/{objectName}
 /// </summary>
-public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileService
+public class CloudStorageService(StorageClient storageClient, ILogger<CloudStorageService> logger) : IFileService
 {
+    private readonly StorageClient _storageClient = storageClient;
     private readonly ILogger<CloudStorageService> _logger = logger;
+
     private const string BucketName = "duneflame-images";
-    private readonly string[] _allowedExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
-    private readonly string[] _allowedMimeTypes = { "image/jpeg", "image/png", "image/webp" };
     private const long MaxFileSize = 5 * 1024 * 1024; // 5 MB
+
+    private static readonly HashSet<string> AllowedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
+    private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/webp"
+    };
 
     /// <summary>
     /// Uploads an image file to Google Cloud Storage and returns the public URL.
@@ -29,31 +35,31 @@ public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileSer
         {
             // 1. Validate file
             if (file == null || file.Length == 0)
-                throw new ArgumentException("File is empty");
+                throw new ArgumentException("File is empty.");
 
             // 2. Validate file size
             if (file.Length > MaxFileSize)
-                throw new ArgumentException("File size exceeds the 5MB limit.");
+                throw new ArgumentException("File size exceeds the 5 MB limit.");
 
             // 3. Validate file extension
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (!_allowedExtensions.Contains(extension))
+            if (!AllowedExtensions.Contains(extension))
                 throw new ArgumentException("Invalid file type. Only JPG, PNG and WEBP are allowed.");
 
             // 4. Validate MIME type
-            if (!_allowedMimeTypes.Contains(file.ContentType?.ToLower() ?? ""))
+            if (!AllowedMimeTypes.Contains(file.ContentType ?? string.Empty))
                 throw new ArgumentException("Invalid content type.");
 
-            // 5. Create unique object name
-            var objectName = $"{folderName}/{Guid.NewGuid()}_{file.FileName}";
+            // 5. Build a safe, unique object name (Path.GetFileName strips any directory traversal)
+            var safeFileName = Path.GetFileName(file.FileName);
+            var objectName = $"{folderName}/{Guid.NewGuid()}_{safeFileName}";
 
             // 6. Upload to GCS
-            var client = StorageClient.Create();
             using var stream = new MemoryStream();
             await file.CopyToAsync(stream);
-            stream.Position = 0; // Reset stream position before uploading
+            stream.Position = 0;
 
-            await client.UploadObjectAsync(
+            await _storageClient.UploadObjectAsync(
                 bucket: BucketName,
                 objectName: objectName,
                 contentType: file.ContentType,
@@ -61,12 +67,12 @@ public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileSer
 
             // 7. Return public URL
             var publicUrl = $"https://storage.googleapis.com/{BucketName}/{objectName}";
-            _logger.LogInformation($"File uploaded successfully to GCS: {publicUrl}");
+            _logger.LogInformation("File uploaded successfully to GCS: {PublicUrl}", publicUrl);
             return publicUrl;
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error uploading file to Google Cloud Storage: {ex.Message}");
+            _logger.LogError(ex, "Error uploading file to Google Cloud Storage");
             throw;
         }
     }
@@ -85,18 +91,17 @@ public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileSer
             // Extract object name from URL if full URL is provided
             var objectName = ExtractObjectNameFromUrl(filePath);
 
-            var client = StorageClient.Create();
-            client.DeleteObject(BucketName, objectName);
+            _storageClient.DeleteObject(BucketName, objectName);
 
-            _logger.LogInformation($"File deleted from GCS: {objectName}");
+            _logger.LogInformation("File deleted from GCS: {ObjectName}", objectName);
         }
         catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            _logger.LogWarning($"File not found in GCS: {filePath}");
+            _logger.LogWarning("File not found in GCS (already deleted?): {FilePath}", filePath);
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error deleting file from Google Cloud Storage: {ex.Message}");
+            _logger.LogError(ex, "Error deleting file from Google Cloud Storage: {FilePath}", filePath);
             throw;
         }
     }
@@ -108,14 +113,11 @@ public class CloudStorageService(ILogger<CloudStorageService> logger) : IFileSer
     /// </summary>
     private static string ExtractObjectNameFromUrl(string filePath)
     {
-        if (filePath.StartsWith("https://storage.googleapis.com/"))
-        {
-            // Extract object name from full URL
-            var urlPrefix = $"https://storage.googleapis.com/{BucketName}/";
-            return filePath.Substring(urlPrefix.Length);
-        }
+        var urlPrefix = $"https://storage.googleapis.com/{BucketName}/";
+        if (filePath.StartsWith(urlPrefix, StringComparison.Ordinal))
+            return filePath[urlPrefix.Length..];
 
-        // If it's already an object name, return as-is
+        // Already an object name
         return filePath;
     }
 }

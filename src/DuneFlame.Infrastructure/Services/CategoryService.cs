@@ -2,6 +2,7 @@ using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Entities;
 using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
@@ -12,11 +13,13 @@ namespace DuneFlame.Infrastructure.Services;
 public class CategoryService(
     AppDbContext context,
     IDistributedCache cache,
-    ILogger<CategoryService> logger) : ICategoryService
+    ILogger<CategoryService> logger,
+    IHttpContextAccessor httpContextAccessor) : ICategoryService
 {
     private readonly AppDbContext _context = context;
     private readonly IDistributedCache _cache = cache;
     private readonly ILogger<CategoryService> _logger = logger;
+    private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
     private const string CacheKeyPrefix = "categories-";
     private const string AllCategoriesCacheKey = "categories-all";
     private const string TreeCacheKey = "categories-tree";
@@ -48,9 +51,8 @@ public class CategoryService(
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
 
-        // Invalidate flat list and tree caches
-        await _cache.RemoveAsync(AllCategoriesCacheKey);
-        await _cache.RemoveAsync(TreeCacheKey);
+        // Invalidate flat list and tree caches for all languages
+        await InvalidateAllLanguageCachesAsync();
         _logger.LogInformation("Category created and caches invalidated: {CategoryId}", category.Id);
 
         return category.Id;
@@ -66,7 +68,7 @@ public class CategoryService(
         if (category == null)
             throw new NotFoundException($"Category with ID {id} not found.");
 
-        return MapToResponse(category);
+        return MapToResponse(category, languageCode: ExtractLanguageFromRequest());
     }
 
     public async Task<CategoryResponse> GetBySlugAsync(string slug)
@@ -84,14 +86,17 @@ public class CategoryService(
             .AsNoTracking()
             .ToDictionaryAsync(c => c.Id);
 
-        return MapToResponse(category, allById);
+        return MapToResponse(category, allById, ExtractLanguageFromRequest());
     }
 
     public async Task<List<CategoryResponse>> GetAllAsync()
     {
         try
         {
-            var cachedCategories = await _cache.GetStringAsync(AllCategoriesCacheKey);
+            var languageCode = ExtractLanguageFromRequest();
+            var cacheKey = $"{AllCategoriesCacheKey}-{languageCode}";
+
+            var cachedCategories = await _cache.GetStringAsync(cacheKey);
             if (cachedCategories != null)
             {
                 _logger.LogInformation("Categories retrieved from cache");
@@ -109,13 +114,13 @@ public class CategoryService(
             // Exclude the internal root node from flat listings
             var categories = allCategories.Where(c => c.Slug != "root").ToList();
 
-            var categoryResponses = categories.Select(c => MapToResponse(c, allById)).ToList();
+            var categoryResponses = categories.OrderBy(c => c.DisplayOrder).Select(c => MapToResponse(c, allById, languageCode)).ToList();
 
             var cacheOptions = new DistributedCacheEntryOptions()
                 .SetAbsoluteExpiration(TimeSpan.FromMinutes(CacheDurationMinutes));
 
             var serializedCategories = JsonSerializer.Serialize(categoryResponses);
-            await _cache.SetStringAsync(AllCategoriesCacheKey, serializedCategories, cacheOptions);
+            await _cache.SetStringAsync(cacheKey, serializedCategories, cacheOptions);
 
             _logger.LogInformation("Categories retrieved from database and cached");
             return categoryResponses;
@@ -129,7 +134,10 @@ public class CategoryService(
 
     public async Task<List<CategoryResponse>> GetTreeAsync()
     {
-        var cached = await _cache.GetStringAsync(TreeCacheKey);
+        var languageCode = ExtractLanguageFromRequest();
+        var treeCacheKey = $"{TreeCacheKey}-{languageCode}";
+
+        var cached = await _cache.GetStringAsync(treeCacheKey);
         if (cached != null)
         {
             _logger.LogInformation("Category tree retrieved from cache");
@@ -152,10 +160,10 @@ public class CategoryService(
         CategoryResponse BuildNode(Category category)
         {
             var children = byParent.TryGetValue(category.Id, out var childList)
-                ? childList.Where(c => c.Id != category.Id).Select(BuildNode).ToList()
+                ? childList.Where(c => c.Id != category.Id).OrderBy(c => c.DisplayOrder).Select(BuildNode).ToList()
                 : [];
 
-            return MapToResponseWithChildren(category, children);
+            return MapToResponseWithChildren(category, children, languageCode: languageCode);
         }
 
         // L1 nodes: direct children of the root sentinel.
@@ -166,13 +174,13 @@ public class CategoryService(
         if (rootCategory == null) return [];
 
         var tree = byParent.TryGetValue(rootCategory.Id, out var l1Nodes)
-            ? l1Nodes.Where(c => c.Id != rootCategory.Id).Select(BuildNode).ToList()
+            ? l1Nodes.Where(c => c.Id != rootCategory.Id).OrderBy(c => c.DisplayOrder).Select(BuildNode).ToList()
             : [];
 
         var cacheOptions = new DistributedCacheEntryOptions()
             .SetAbsoluteExpiration(TimeSpan.FromMinutes(CacheDurationMinutes));
 
-        await _cache.SetStringAsync(TreeCacheKey, JsonSerializer.Serialize(tree), cacheOptions);
+        await _cache.SetStringAsync(treeCacheKey, JsonSerializer.Serialize(tree), cacheOptions);
 
         _logger.LogInformation("Category tree built: {Count} top-level nodes", tree.Count);
         return tree;
@@ -213,9 +221,8 @@ public class CategoryService(
         _context.Categories.Update(category);
         await _context.SaveChangesAsync();
 
-        // Invalidate flat list and tree caches
-        await _cache.RemoveAsync(AllCategoriesCacheKey);
-        await _cache.RemoveAsync(TreeCacheKey);
+        // Invalidate flat list and tree caches for all languages
+        await InvalidateAllLanguageCachesAsync();
         _logger.LogInformation("Category updated and caches invalidated: {CategoryId}", id);
     }
 
@@ -242,22 +249,21 @@ public class CategoryService(
         _context.Categories.Remove(category);
         await _context.SaveChangesAsync();
 
-        // Invalidate flat list and tree caches
-        await _cache.RemoveAsync(AllCategoriesCacheKey);
-        await _cache.RemoveAsync(TreeCacheKey);
+        // Invalidate flat list and tree caches for all languages
+        await InvalidateAllLanguageCachesAsync();
         _logger.LogInformation("Category deleted and caches invalidated: {CategoryId}", id);
     }
 
-    private static CategoryResponse MapToResponse(Category category, Dictionary<Guid, Category>? allById = null)
-        => MapToResponseWithChildren(category, [], allById);
+    private static CategoryResponse MapToResponse(Category category, Dictionary<Guid, Category>? allById = null, string languageCode = "en")
+        => MapToResponseWithChildren(category, [], allById, languageCode);
 
-    private static CategoryResponse MapToResponseWithChildren(Category category, IEnumerable<CategoryResponse> children, Dictionary<Guid, Category>? allById = null)
+    private static CategoryResponse MapToResponseWithChildren(Category category, IEnumerable<CategoryResponse> children, Dictionary<Guid, Category>? allById = null, string languageCode = "en")
     {
-        var translation = category.Translations
-            .FirstOrDefault(t => t.LanguageCode == "en")
+        var translation = category.Translations.FirstOrDefault(t => t.LanguageCode == languageCode)
+            ?? category.Translations.FirstOrDefault(t => t.LanguageCode == "en")
             ?? category.Translations.FirstOrDefault();
 
-        string? breadcrumb = allById != null ? BuildBreadcrumbPath(category, allById) : null;
+        string? breadcrumb = allById != null ? BuildBreadcrumbPath(category, allById, languageCode) : null;
 
         return new CategoryResponse(
             Id: category.Id,
@@ -269,18 +275,20 @@ public class CategoryService(
             IsCoffeeCategory: category.IsCoffeeCategory,
             ParentCategoryId: category.ParentCategoryId,
             Children: children,
+            DisplayOrder: category.DisplayOrder,
             BreadcrumbPath: breadcrumb
         );
     }
 
-    private static string BuildBreadcrumbPath(Category category, Dictionary<Guid, Category> allById)
+    private static string BuildBreadcrumbPath(Category category, Dictionary<Guid, Category> allById, string languageCode = "en")
     {
         var parts = new List<string>();
         var current = category;
 
         while (current != null && current.Slug != "root")
         {
-            var name = current.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+            var name = current.Translations.FirstOrDefault(t => t.LanguageCode == languageCode)?.Name
+                       ?? current.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
                        ?? current.Translations.FirstOrDefault()?.Name
                        ?? "Unknown";
             parts.Insert(0, name);
@@ -297,6 +305,43 @@ public class CategoryService(
     public async Task<bool> IsLeafCategoryAsync(Guid categoryId)
     {
         return !await _context.Categories.AnyAsync(c => c.ParentCategoryId == categoryId);
+    }
+
+    /// <summary>
+    /// Extracts the preferred language from the Accept-Language request header.
+    /// Supports "ar" and "en"; defaults to "en".
+    /// </summary>
+    private string ExtractLanguageFromRequest()
+    {
+        try
+        {
+            var httpContext = _httpContextAccessor.HttpContext;
+            if (httpContext == null) return "en";
+
+            var acceptLanguage = httpContext.Request.Headers["Accept-Language"].ToString();
+            if (string.IsNullOrWhiteSpace(acceptLanguage)) return "en";
+
+            var lang = acceptLanguage.Split(',')[0].Trim();
+            lang = lang.Length >= 2 ? lang[..2].ToLower() : "en";
+            return lang == "ar" ? "ar" : "en";
+        }
+        catch
+        {
+            return "en";
+        }
+    }
+
+    /// <summary>
+    /// Removes all language-keyed cache entries for categories and the tree.
+    /// Called on every create/update/delete so no stale translated response is served.
+    /// </summary>
+    private async Task InvalidateAllLanguageCachesAsync()
+    {
+        foreach (var lang in new[] { "en", "ar" })
+        {
+            await _cache.RemoveAsync($"{AllCategoriesCacheKey}-{lang}");
+            await _cache.RemoveAsync($"{TreeCacheKey}-{lang}");
+        }
     }
 
     private async Task<HashSet<Guid>> GetDescendantCategoryIdsAsync(Guid rootCategoryId)
@@ -327,4 +372,3 @@ public class CategoryService(
         return result;
     }
 }
-

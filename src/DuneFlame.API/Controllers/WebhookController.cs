@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Stripe;
+using System.Linq;
 
 namespace DuneFlame.API.Controllers;
 
@@ -186,34 +187,55 @@ public class WebhookController(
             return;
         }
 
-        _logger.LogInformation("Processing charge refunded: {ChargeId}",
-            charge.Id);
+        _logger.LogInformation("Processing charge.refunded webhook: ChargeId={ChargeId}, PaymentIntentId={PaymentIntentId}",
+            charge.Id, charge.PaymentIntentId);
 
         try
         {
-            // Extract refund ID from charge metadata (Stripe stores refund data in charge)
-            // Note: charge.RefundIds may not exist in all Stripe SDK versions
-            // The refund is identified by the event itself and charge.Id
-            var refundId = charge.Id; // Use charge ID as refund identifier
+            // Extract the most recent refund ID from the Refunds collection
+            var latestRefund = charge.Refunds?.Data?.OrderByDescending(r => r.Created).FirstOrDefault();
+            var refundId = latestRefund?.Id ?? charge.Id;
 
-            // NOTE: In a production system, you would:
-            // 1. Query PaymentTransactions table by TransactionId (charge.Id)
-            // 2. Check if RefundId already set (idempotency)
-            // 3. Update RefundId via native SQL to avoid ORM conflicts
-            // 4. Log the refund for audit purposes
-            // 
-            // This webhook handler is defensive - the main AdminOrderService.CancelOrderAsync
-            // handles the full 3-Phase cancellation including payment refund initiation.
-            // This handler provides a fallback confirmation mechanism.
+            var dbContext = HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+
+            // Locate the PaymentTransaction by the PaymentIntentId carried on the charge.
+            // Fall back to matching by the charge ID stored as TransactionId.
+            var paymentTransaction = await dbContext.PaymentTransactions
+                .FirstOrDefaultAsync(pt =>
+                    pt.TransactionId == charge.PaymentIntentId ||
+                    pt.TransactionId == charge.Id);
+
+            if (paymentTransaction == null)
+            {
+                _logger.LogWarning(
+                    "No PaymentTransaction found for ChargeId={ChargeId} / PaymentIntentId={PaymentIntentId}. " +
+                    "Refund webhook will be skipped (may have been processed by CancelOrderAsync already).",
+                    charge.Id, charge.PaymentIntentId);
+                return;
+            }
+
+            // Idempotency: if RefundId is already set, skip to avoid double-processing
+            if (!string.IsNullOrEmpty(paymentTransaction.RefundId))
+            {
+                _logger.LogInformation(
+                    "PaymentTransaction {TransactionId} already has RefundId={RefundId}. Skipping duplicate charge.refunded event.",
+                    paymentTransaction.Id, paymentTransaction.RefundId);
+                return;
+            }
+
+            // Persist the refund ID and update status via native SQL to avoid ORM concurrency conflicts
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $@"UPDATE ""PaymentTransactions""
+                   SET ""RefundId"" = {refundId}, ""Status"" = 'Refunded'
+                   WHERE ""Id"" = {paymentTransaction.Id}");
 
             _logger.LogInformation(
-                "Charge refund recorded: ChargeId {ChargeId}, RefundId {RefundId}, Amount {Amount}",
-                charge.Id, refundId, charge.Amount / 100m); // Stripe amounts in cents
+                "Charge refund persisted: ChargeId={ChargeId}, RefundId={RefundId}, Amount={Amount}, TransactionId={TransactionId}",
+                charge.Id, refundId, charge.Amount / 100m, paymentTransaction.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing charge.refunded webhook for Charge {ChargeId}",
-                charge.Id);
+            _logger.LogError(ex, "Error processing charge.refunded webhook for Charge {ChargeId}", charge.Id);
             throw;
         }
     }

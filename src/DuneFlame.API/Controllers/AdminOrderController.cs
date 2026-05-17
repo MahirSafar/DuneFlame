@@ -3,6 +3,7 @@ using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Order;
 using DuneFlame.Application.Interfaces;
 using DuneFlame.Domain.Enums;
+using DuneFlame.Domain.Exceptions;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -62,9 +63,13 @@ public class AdminOrderController(
             await _adminOrderService.UpdateOrderStatusAsync(id, status);
             return Ok(new { message = "Order status updated successfully", status = status.ToString() });
         }
-        catch (KeyNotFoundException ex)
+        catch (NotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (BadRequestException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
@@ -80,9 +85,13 @@ public class AdminOrderController(
             await _adminOrderService.CancelOrderAsync(id);
             return Ok(new { message = "Order cancelled successfully with refund processed" });
         }
-        catch (KeyNotFoundException ex)
+        catch (NotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (BadRequestException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {

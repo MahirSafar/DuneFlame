@@ -8,4 +8,5 @@ public class RoastLevelEntity : BaseEntity
 
     // Navigation (M2M with ProductCoffeeProfile)
     public ICollection<ProductCoffeeProfile> Profiles { get; set; } = [];
+    public ICollection<RoastLevelTranslation> Translations { get; set; } = new List<RoastLevelTranslation>();
 }

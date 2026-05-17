@@ -7,4 +7,5 @@ public interface IUserProfileService
 {
     Task<UserProfileDto> GetOrCreateProfileAsync(Guid userId);
     Task UpdateProfileAsync(Guid userId, UpdateProfileRequest request);
+    Task ChangePasswordAsync(Guid userId, ChangePasswordRequest request);
 }

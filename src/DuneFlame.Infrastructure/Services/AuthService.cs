@@ -6,6 +6,7 @@ using DuneFlame.Domain.Exceptions;
 using DuneFlame.Infrastructure.Authentication;
 using DuneFlame.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -23,7 +24,8 @@ public class AuthService(
     IEmailService emailService,
     ILogger<AuthService> logger,
     AppDbContext context,
-    IOptions<JwtSettings> jwtSettings) : IAuthService
+    IOptions<JwtSettings> jwtSettings,
+    IHttpContextAccessor httpContextAccessor) : IAuthService
 {
     private readonly UserManager<ApplicationUser> _userManager = userManager;
     private readonly SignInManager<ApplicationUser> _signInManager = signInManager;
@@ -32,6 +34,14 @@ public class AuthService(
     private readonly ILogger _logger = logger;
     private readonly AppDbContext _context = context;
     private readonly JwtSettings _jwtSettings = jwtSettings.Value;
+    private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
+
+    private string ExtractLanguageFromRequest()
+    {
+        var lang = _httpContextAccessor.HttpContext?.Request.Headers["Accept-Language"]
+                       .ToString().Split(',', ';')[0].Trim().ToLowerInvariant() ?? "en";
+        return lang.StartsWith("ar") ? "ar" : "en";
+    }
 
     public async Task<bool> RegisterAsync(RegisterRequest request)
     {
@@ -317,13 +327,17 @@ public class AuthService(
 
         if (userByEmail == null)
         {
+            var pictureUrl = info.Principal.FindFirstValue("urn:google:picture")
+                             ?? info.Principal.FindFirstValue("picture");
+
             userByEmail = new ApplicationUser
             {
                 UserName = email,
                 Email = email,
                 FirstName = info.Principal.FindFirstValue(ClaimTypes.GivenName) ?? "Google",
                 LastName = info.Principal.FindFirstValue(ClaimTypes.Surname) ?? "User",
-                EmailConfirmed = true // Google artıq təsdiqləyib
+                EmailConfirmed = true, // Google artıq təsdiqləyib
+                ProfileImageUrl = pictureUrl
             };
             await _userManager.CreateAsync(userByEmail);
             await _userManager.AddToRoleAsync(userByEmail, "Customer");
@@ -357,7 +371,8 @@ public class AuthService(
 
                 try
                 {
-                    await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id.ToString(), token);
+                    var lang = ExtractLanguageFromRequest();
+                    await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id.ToString(), token, lang);
                     return true;
                 }
                 catch (Exception ex)

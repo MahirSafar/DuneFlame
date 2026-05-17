@@ -31,12 +31,20 @@ public class CartService(AppDbContext context, IHttpContextAccessor httpContextA
             .Include(c => c.Items)
                 .ThenInclude(ci => ci.ProductVariant)
                 .ThenInclude(v => v.Options)
-                .ThenInclude(o => o.ProductAttributeValue)
-                .ThenInclude(av => av.ProductAttribute)
+                    .ThenInclude(o => o.ProductAttributeValue)
+                        .ThenInclude(av => av.Translations)
+            .Include(c => c.Items)
+                .ThenInclude(ci => ci.ProductVariant)
+                .ThenInclude(v => v.Options)
+                    .ThenInclude(o => o.ProductAttributeValue)
+                        .ThenInclude(av => av.ProductAttribute)
+                            .ThenInclude(a => a.Translations)
             .Include(c => c.Items)
                 .ThenInclude(ci => ci.RoastLevel)
+                    .ThenInclude(r => r!.Translations)
             .Include(c => c.Items)
                 .ThenInclude(ci => ci.GrindType)
+                    .ThenInclude(g => g!.Translations)
             .AsSplitQuery();
     }
 
@@ -293,12 +301,36 @@ public class CartService(AppDbContext context, IHttpContextAccessor httpContextA
                         ?? "Unknown";
 
                     // Use the specific RoastLevel and GrindType stored in CartItem, not just the first from product
-                    var roastLevelName = ci.RoastLevel?.Name ?? "Unknown";
-                    var grindTypeName = ci.GrindType?.Name ?? "Unknown";
+                    var roastLevelName = ci.RoastLevel != null
+                        ? (ci.RoastLevel.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                           ?? ci.RoastLevel.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                           ?? ci.RoastLevel.Name)
+                        : null;
+
+                    var grindTypeName = ci.GrindType != null
+                        ? (ci.GrindType.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                           ?? ci.GrindType.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                           ?? ci.GrindType.Name)
+                        : null;
 
                     var attributes = variant?.Options
                         .Where(o => o.ProductAttributeValue?.ProductAttribute != null)
-                        .Select(o => $"{o.ProductAttributeValue!.ProductAttribute!.Name}: {o.ProductAttributeValue.Value}")
+                        .Select(o =>
+                        {
+                            var attrName = o.ProductAttributeValue!.ProductAttribute!.Translations
+                                ?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedName
+                                ?? o.ProductAttributeValue.ProductAttribute.Translations
+                                ?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedName
+                                ?? o.ProductAttributeValue.ProductAttribute.Name;
+
+                            var attrVal = o.ProductAttributeValue.Translations
+                                ?.FirstOrDefault(t => t.LanguageCode == languageCode)?.TranslatedValue
+                                ?? o.ProductAttributeValue.Translations
+                                ?.FirstOrDefault(t => t.LanguageCode == "en")?.TranslatedValue
+                                ?? o.ProductAttributeValue.Value;
+
+                            return $"{attrName}: {attrVal}";
+                        })
                         .ToList() ?? new List<string>();
 
                     return new CartItemDto(

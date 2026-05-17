@@ -1,5 +1,6 @@
 using DuneFlame.Application.DTOs.Order;
 using DuneFlame.Application.Interfaces;
+using DuneFlame.Domain.Exceptions;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -48,13 +49,21 @@ public class OrderController(
             var order = await _orderService.CreateOrderAsync(userId, request);
             return CreatedAtAction(nameof(GetOrderById), new { id = order.Id }, order);
         }
-        catch (InvalidOperationException ex)
+        catch (ConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (BadRequestException ex)
         {
             return BadRequest(new { message = ex.Message });
         }
-        catch (KeyNotFoundException ex)
+        catch (InvalidOperationException ex)
         {
-            return NotFound(new { message = ex.Message });
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {

@@ -182,7 +182,9 @@ public class ShippingService(
         {
             var query = context.Countries
                 .Include(c => c.Cities)
+                    .ThenInclude(city => city.Translations)
                 .Include(c => c.ShippingRates)
+                .Include(c => c.Translations)
                 .AsSplitQuery()
                 .AsQueryable();
 
@@ -214,7 +216,9 @@ public class ShippingService(
         {
             var country = await context.Countries
                 .Include(c => c.Cities)
+                    .ThenInclude(city => city.Translations)
                 .Include(c => c.ShippingRates)
+                .Include(c => c.Translations)
                 .AsSplitQuery()
                 .FirstOrDefaultAsync(c => c.Code.ToUpper() == code.ToUpper());
 
@@ -238,7 +242,9 @@ public class ShippingService(
         {
             var country = await context.Countries
                 .Include(c => c.Cities)
+                    .ThenInclude(city => city.Translations)
                 .Include(c => c.ShippingRates)
+                .Include(c => c.Translations)
                 .AsSplitQuery()
                 .FirstOrDefaultAsync(c => c.Id == countryId);
 

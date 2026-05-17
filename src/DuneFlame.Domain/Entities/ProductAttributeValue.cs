@@ -8,4 +8,5 @@ public class ProductAttributeValue : BaseEntity
     public ProductAttribute? ProductAttribute { get; set; }
 
     public string Value { get; set; } = string.Empty;
+    public ICollection<ProductAttributeValueTranslation> Translations { get; set; } = new List<ProductAttributeValueTranslation>();
 }

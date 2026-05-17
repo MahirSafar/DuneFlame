@@ -144,11 +144,11 @@ public class AdminOrderService(
                     switch (status)
                     {
                         case OrderStatus.Shipped:
-                            await _emailService.SendOrderShippedAsync(userEmail, orderId);
+                            await _emailService.SendOrderShippedAsync(userEmail, orderId, languageCode: order.LanguageCode);
                             _logger.LogInformation("Shipped email sent for Order {OrderId}", orderId);
                             break;
                         case OrderStatus.Delivered:
-                            await _emailService.SendOrderDeliveredAsync(userEmail, orderId);
+                            await _emailService.SendOrderDeliveredAsync(userEmail, orderId, order.LanguageCode);
                             _logger.LogInformation("Delivered email sent for Order {OrderId}", orderId);
                             break;
                     }
@@ -337,7 +337,7 @@ public class AdminOrderService(
 
                         // Async send without await (fire-and-forget)
                         #pragma warning disable CS4014 // Because this call is not awaited, execution continues
-                        emailService.SendOrderCancelledAsync(userEmail, order.Id, order.TotalAmount).ContinueWith(task =>
+                        emailService.SendOrderCancelledAsync(userEmail, order.Id, order.TotalAmount, order.LanguageCode).ContinueWith(task =>
                         {
                             if (task.IsFaulted)
                             {

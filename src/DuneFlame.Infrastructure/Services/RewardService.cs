@@ -43,7 +43,7 @@ public class RewardService(AppDbContext context) : IRewardService
         return new RewardStatsDto(wallet.Balance, totalEarned, totalSpent);
     }
 
-    public async Task<List<RewardTransactionDto>> GetTransactionsAsync(Guid userId)
+    public async Task<List<RewardTransactionDto>> GetTransactionsAsync(Guid userId, string languageCode = "en")
     {
         var transactions = await _context.RewardTransactions
             .AsNoTracking()
@@ -51,13 +51,28 @@ public class RewardService(AppDbContext context) : IRewardService
             .OrderByDescending(rt => rt.CreatedAt)
             .ToListAsync();
 
-        return transactions.Select(t => new RewardTransactionDto(
-            t.Id,
-            t.CreatedAt,
-            t.Amount,
-            t.Type,
-            t.Description
-        )).ToList();
+        return transactions.Select(t =>
+        {
+            var description = LocalizeDescription(t.Type, t.RelatedOrderId, t.Description, languageCode);
+            return new RewardTransactionDto(t.Id, t.CreatedAt, t.Amount, t.Type, description);
+        }).ToList();
+    }
+
+    private static string LocalizeDescription(RewardType type, Guid? orderId, string rawDescription, string languageCode)
+    {
+        var orderSuffix = orderId.HasValue ? $" #{orderId.Value:N}" : string.Empty;
+
+        return (type, languageCode) switch
+        {
+            (RewardType.Earned, "ar")            => $"استرداد نقدي للطلب رقم{orderSuffix}",
+            (RewardType.Earned, _)               => $"Cashback for Order{orderSuffix}",
+            (RewardType.Redeemed, "ar")          => $"النقاط المستردة للطلب رقم{orderSuffix}",
+            (RewardType.Redeemed, _)             => $"Points redeemed for Order{orderSuffix}",
+            (RewardType.Refunded, "ar")          => $"نقاط مُعادة بسبب إلغاء الطلب رقم{orderSuffix}",
+            (RewardType.Refunded, _)             => $"Points refunded due to cancellation of Order{orderSuffix}",
+            (RewardType.ManualAdjustment, _)     => rawDescription,
+            _                                    => rawDescription
+        };
     }
 
     /// <summary>
