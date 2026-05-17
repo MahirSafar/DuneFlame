@@ -23,6 +23,16 @@ public static class DbInitializer
         {
             await context.SaveChangesAsync();
         }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            logger.LogError("Concurrency exception on {EntityLabel}", entityLabel);
+            foreach (var entry in ex.Entries)
+            {
+                var modifiedProps = entry.Properties.Where(p => p.IsModified).Select(p => p.Metadata.Name);
+                logger.LogError("Entity: {EntityName}, State: {State}, Id: {Id}, Modified Properties: {Props}", entry.Entity.GetType().Name, entry.State, entry.Property("Id").CurrentValue, string.Join(", ", modifiedProps));
+            }
+            throw;
+        }
         catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("duplicate key") == true
                                         || ex.InnerException?.Message.Contains("unique constraint") == true
                                         || ex.InnerException?.Message.Contains("23505") == true)
@@ -153,9 +163,17 @@ public static class DbInitializer
         foreach (var origin in origins)
         {
             if (!origin.Translations.Any(t => t.LanguageCode == "en"))
-                origin.Translations.Add(new OriginTranslation { LanguageCode = "en", TranslatedName = origin.Name });
+            {
+                var t = new OriginTranslation { LanguageCode = "en", TranslatedName = origin.Name };
+                origin.Translations.Add(t);
+                context.Add(t);
+            }
             if (originArNames.TryGetValue(origin.Name, out var arName) && !origin.Translations.Any(t => t.LanguageCode == "ar"))
-                origin.Translations.Add(new OriginTranslation { LanguageCode = "ar", TranslatedName = arName });
+            {
+                var t = new OriginTranslation { LanguageCode = "ar", TranslatedName = arName };
+                origin.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         // --- Roast Levels ---
@@ -171,9 +189,17 @@ public static class DbInitializer
         foreach (var roast in roastLevels)
         {
             if (!roast.Translations.Any(t => t.LanguageCode == "en"))
-                roast.Translations.Add(new RoastLevelTranslation { LanguageCode = "en", TranslatedName = roast.Name });
+            {
+                var t = new RoastLevelTranslation { LanguageCode = "en", TranslatedName = roast.Name };
+                roast.Translations.Add(t);
+                context.Add(t);
+            }
             if (roastArNames.TryGetValue(roast.Name, out var arName) && !roast.Translations.Any(t => t.LanguageCode == "ar"))
-                roast.Translations.Add(new RoastLevelTranslation { LanguageCode = "ar", TranslatedName = arName });
+            {
+                var t = new RoastLevelTranslation { LanguageCode = "ar", TranslatedName = arName };
+                roast.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         // --- Grind Types ---
@@ -191,9 +217,17 @@ public static class DbInitializer
         foreach (var grind in grindTypes)
         {
             if (!grind.Translations.Any(t => t.LanguageCode == "en"))
-                grind.Translations.Add(new GrindTypeTranslation { LanguageCode = "en", TranslatedName = grind.Name });
+            {
+                var t = new GrindTypeTranslation { LanguageCode = "en", TranslatedName = grind.Name };
+                grind.Translations.Add(t);
+                context.Add(t);
+            }
             if (grindArNames.TryGetValue(grind.Name, out var arName) && !grind.Translations.Any(t => t.LanguageCode == "ar"))
-                grind.Translations.Add(new GrindTypeTranslation { LanguageCode = "ar", TranslatedName = arName });
+            {
+                var t = new GrindTypeTranslation { LanguageCode = "ar", TranslatedName = arName };
+                grind.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         // --- Brands ---
@@ -214,9 +248,17 @@ public static class DbInitializer
         foreach (var brand in brands)
         {
             if (!brand.Translations.Any(t => t.LanguageCode == "en"))
-                brand.Translations.Add(new BrandTranslation { LanguageCode = "en", TranslatedName = brand.Name, TranslatedDescription = brand.Description });
+            {
+                var t = new BrandTranslation { LanguageCode = "en", TranslatedName = brand.Name, TranslatedDescription = brand.Description };
+                brand.Translations.Add(t);
+                context.Add(t);
+            }
             if (brandArNames.TryGetValue(brand.Name, out var arBrandName) && !brand.Translations.Any(t => t.LanguageCode == "ar"))
-                brand.Translations.Add(new BrandTranslation { LanguageCode = "ar", TranslatedName = arBrandName, TranslatedDescription = brandArDescriptions.GetValueOrDefault(brand.Name) });
+            {
+                var t = new BrandTranslation { LanguageCode = "ar", TranslatedName = arBrandName, TranslatedDescription = brandArDescriptions.GetValueOrDefault(brand.Name) };
+                brand.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         // --- ProductAttributes ---
@@ -230,9 +272,17 @@ public static class DbInitializer
         foreach (var attr in attributes)
         {
             if (!attr.Translations.Any(t => t.LanguageCode == "en"))
-                attr.Translations.Add(new ProductAttributeTranslation { LanguageCode = "en", TranslatedName = attr.Name });
+            {
+                var t = new ProductAttributeTranslation { LanguageCode = "en", TranslatedName = attr.Name };
+                attr.Translations.Add(t);
+                context.Add(t);
+            }
             if (attributeArNames.TryGetValue(attr.Name, out var arAttrName) && !attr.Translations.Any(t => t.LanguageCode == "ar"))
-                attr.Translations.Add(new ProductAttributeTranslation { LanguageCode = "ar", TranslatedName = arAttrName });
+            {
+                var t = new ProductAttributeTranslation { LanguageCode = "ar", TranslatedName = arAttrName };
+                attr.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         // --- ProductAttributeValues ---
@@ -266,9 +316,17 @@ public static class DbInitializer
         foreach (var val in attrValues)
         {
             if (!val.Translations.Any(t => t.LanguageCode == "en"))
-                val.Translations.Add(new ProductAttributeValueTranslation { LanguageCode = "en", TranslatedValue = val.Value });
+            {
+                var t = new ProductAttributeValueTranslation { LanguageCode = "en", TranslatedValue = val.Value };
+                val.Translations.Add(t);
+                context.Add(t);
+            }
             if (attributeValueArNames.TryGetValue(val.Value, out var arVal) && !val.Translations.Any(t => t.LanguageCode == "ar"))
-                val.Translations.Add(new ProductAttributeValueTranslation { LanguageCode = "ar", TranslatedValue = arVal });
+            {
+                var t = new ProductAttributeValueTranslation { LanguageCode = "ar", TranslatedValue = arVal };
+                val.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         // --- FlavourNote Arabic backfill (for rows already in DB from old seed) ---
@@ -293,9 +351,17 @@ public static class DbInitializer
         foreach (var note in flavourNotes)
         {
             if (!note.Translations.Any(t => t.LanguageCode == "en"))
-                note.Translations.Add(new FlavourNoteTranslation { LanguageCode = "en", Name = note.Name });
+            {
+                var t = new FlavourNoteTranslation { LanguageCode = "en", Name = note.Name };
+                note.Translations.Add(t);
+                context.Add(t);
+            }
             if (flavourNoteArNames.TryGetValue(note.Name, out var arName) && !note.Translations.Any(t => t.LanguageCode == "ar"))
-                note.Translations.Add(new FlavourNoteTranslation { LanguageCode = "ar", Name = arName });
+            {
+                var t = new FlavourNoteTranslation { LanguageCode = "ar", Name = arName };
+                note.Translations.Add(t);
+                context.Add(t);
+            }
         }
 
         await TrySaveAsync(context, logger, "MasterDataTranslations");

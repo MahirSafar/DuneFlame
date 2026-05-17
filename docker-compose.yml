@@ -10,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=duneflame123
       - POSTGRES_DB=DuneFlameDb
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -24,19 +24,12 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@duneflame.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
-      - "5050:80"
+      - "5051:80"
     depends_on:
       - db
     networks:
       - duneflame_network
 
-  redis:
-    image: redis:latest
-    container_name: duneflame_redis
-    ports:
-      - "6379:6379"
-    networks:
-      - duneflame_network
 
 networks:
   duneflame_network:

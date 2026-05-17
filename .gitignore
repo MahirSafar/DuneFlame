@@ -491,5 +491,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+deploy.ps1
 
-src/DuneFlame.API/appsettings.json
