@@ -398,6 +398,14 @@ FodyWeavers.xsd
 *.msi
 *.msix
 *.msm
+
+# Ignore ASP.NET Core appsettings files containing secrets
+# Prevent committing appsettings.json, appsettings.Development.json, etc.
+**/appsettings*.json
+
+# Keep example/sample config files if present
+!**/appsettings.Sample.json
+!**/appsettings.example.json
 *.msp
 
 # JetBrains Rider
