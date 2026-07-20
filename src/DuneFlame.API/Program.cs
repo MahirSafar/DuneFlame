@@ -96,6 +96,14 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Allow HTTPS headers from all external Cloud Run proxies:
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.Configure<CookiePolicyOptions>(options =>
 {
     options.MinimumSameSitePolicy = SameSiteMode.Lax;
@@ -140,16 +148,15 @@ if (!app.Environment.IsEnvironment("Testing"))
     }
     catch (Exception ex)
     {
-        Log.Fatal(ex, "Database initialization failed. The application will still start but may be in a degraded state.");
+        Log.Fatal(ex, "Database initialization failed. Shutting down to prevent serving requests against an uninitialised database.");
+        await app.StopAsync();
+        return;
     }
 }
 
 app.UseSerilogRequestLogging();
 app.UseMiddleware<GlobalExceptionMiddleware>();
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment())
 {

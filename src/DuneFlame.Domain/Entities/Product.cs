@@ -5,7 +5,7 @@ namespace DuneFlame.Domain.Entities;
 public class Product : BaseEntity
 {
     public string Slug { get; set; } = string.Empty;
-    public bool IsActive { get; set; } = true;
+    public bool IsDeleted { get; set; } = false;
 
     // Foreign Keys
     public Guid CategoryId { get; set; }

@@ -12,6 +12,12 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Abstractions" Version="2.3.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Products\Commands\ToggleProductStatus\" />
+    <Folder Include="Users\Queries\GetProfile\" />
+  </ItemGroup>
+
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

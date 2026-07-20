@@ -1,6 +1,4 @@
-using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
-using DuneFlame.Application.Interfaces;
 using DuneFlame.Application.Products.Commands.CreateProduct;
 using DuneFlame.Application.Products.Commands.DeleteProduct;
 using DuneFlame.Application.Products.Commands.RestoreProduct;
@@ -9,14 +7,7 @@ using DuneFlame.Application.Products.Queries.GetAllProducts;
 using DuneFlame.Application.Products.Queries.GetProductById;
 using FluentValidation;
 using MediatR;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace DuneFlame.API.Controllers;
 

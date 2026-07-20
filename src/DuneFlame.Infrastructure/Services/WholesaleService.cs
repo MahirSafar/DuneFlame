@@ -21,10 +21,10 @@ public class WholesaleService(
             FullName     = request.FullName,
             BusinessName = request.BusinessName,
             Email        = request.Email,
-            Phone        = request.Phone,
+            Phone        = request.Phone ?? string.Empty,
             BusinessType = request.BusinessType,
             MonthlyVolume = request.MonthlyVolume,
-            Message      = request.Message,
+            Message      = request.Message ?? string.Empty,
             IsReviewed   = false
         };
 

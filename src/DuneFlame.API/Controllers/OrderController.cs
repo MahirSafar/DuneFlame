@@ -1,7 +1,9 @@
-using DuneFlame.Application.DTOs.Order;
-using DuneFlame.Application.Interfaces;
+using DuneFlame.Application.Orders.Commands.CancelOrder;
+using DuneFlame.Application.Orders.Commands.CreateOrder;
+using DuneFlame.Application.Orders.Queries.GetMyOrders;
+using DuneFlame.Application.Orders.Queries.GetOrderById;
 using DuneFlame.Domain.Exceptions;
-using FluentValidation;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -11,146 +13,64 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/orders")]
 [ApiController]
 [Authorize]
-public class OrderController(
-    IOrderService orderService,
-    IValidator<CreateOrderRequest> createOrderValidator) : ControllerBase
+public class OrderController(IMediator mediator) : ControllerBase
 {
-    private readonly IOrderService _orderService = orderService;
-    private readonly IValidator<CreateOrderRequest> _createOrderValidator = createOrderValidator;
-
     private Guid? GetUserId()
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-        {
-            return null; // Guest user - no ID
-        }
-        return userId;
+        var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return Guid.TryParse(claim, out var id) ? id : null;
     }
 
-    /// <summary>
-    /// Create a new order from basket with shipping address and optional payment intent ID
-    /// POST /api/v1/orders
-    /// Body: { "basketId": "user-id", "paymentIntentId": "pi_...", "shippingAddress": { "street": "...", "city": "...", ... } }
-    /// </summary>
     [HttpPost]
     [AllowAnonymous]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
+    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderCommand command)
     {
-        var validationResult = await _createOrderValidator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            return BadRequest(validationResult.Errors);
-        }
-
         try
         {
-            var userId = GetUserId();
-            var order = await _orderService.CreateOrderAsync(userId, request);
+            var cmd = command with { UserId = GetUserId() };
+            var order = await mediator.Send(cmd);
             return CreatedAtAction(nameof(GetOrderById), new { id = order.Id }, order);
         }
-        catch (ConflictException ex)
-        {
-            return Conflict(new { message = ex.Message });
-        }
-        catch (NotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (BadRequestException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        catch (ConflictException ex) { return Conflict(new { message = ex.Message }); }
+        catch (NotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (BadRequestException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return BadRequest(new { message = ex.Message }); }
     }
 
-    /// <summary>
-    /// Get all orders for the current user
-    /// GET /api/v1/orders
-    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetMyOrders()
     {
-        try
-        {
-            var userId = GetUserId();
-            if (userId == null)
-            {
-                return Unauthorized(new { message = "User must be logged in to view orders" });
-            }
-            var orders = await _orderService.GetMyOrdersAsync(userId.Value);
-            return Ok(orders);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        var userId = GetUserId();
+        if (userId == null) return Unauthorized(new { message = "User must be logged in to view orders" });
+        var orders = await mediator.Send(new GetMyOrdersQuery(userId.Value));
+        return Ok(orders);
     }
 
-    /// <summary>
-    /// Get a specific order by ID
-    /// GET /api/v1/orders/{id}
-    /// Supports both authenticated and guest users:
-    /// - If order has UserId (registered user): Only that user can view
-    /// - If order has no UserId (guest checkout): Anyone can view (guest knows their order ID from confirmation)
-    /// </summary>
     [HttpGet("{id:guid}")]
     [AllowAnonymous]
     public async Task<IActionResult> GetOrderById(Guid id)
     {
         try
         {
-            var order = await _orderService.GetOrderByIdAsync(id);
-
-            // Security check: Verify access permissions
+            var order = await mediator.Send(new GetOrderByIdQuery(id));
             var currentUserId = GetUserId();
-
-            if (order.UserId.HasValue)
-            {
-                // Order belongs to a registered user - only that user can view it
-                if (currentUserId == null || currentUserId != order.UserId)
-                {
-                    return Forbid();
-                }
-            }
-            // else: Order is from guest checkout (UserId is null) - allow any viewer
-            // Guest users identify themselves by knowing the order ID
-
+            if (order.UserId.HasValue && (currentUserId == null || currentUserId != order.UserId))
+                return Forbid();
             return Ok(order);
         }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (Exception ex) { return BadRequest(new { message = ex.Message }); }
     }
 
-    /// <summary>
-    /// Cancel an abandoned order and unlock the basket
-    /// POST /api/v1/orders/{id}/cancel
-    /// </summary>
     [HttpPost("{id:guid}/cancel")]
     [AllowAnonymous]
     public async Task<IActionResult> CancelOrder(Guid id)
     {
         try
         {
-            await _orderService.CancelAbandonedOrderAsync(id);
+            await mediator.Send(new CancelOrderCommand(id));
             return Ok(new { message = "Order is cancelled" });
         }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        catch (Exception ex) { return BadRequest(new { message = ex.Message }); }
     }
 }

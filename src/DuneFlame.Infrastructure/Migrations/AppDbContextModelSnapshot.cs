@@ -781,6 +781,9 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("Channel")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -789,6 +792,9 @@ namespace DuneFlame.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text")
                         .HasDefaultValue("USD");
+
+                    b.Property<int>("DeliveryStatus")
+                        .HasColumnType("integer");
 
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
@@ -801,6 +807,9 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<string>("PaymentIntentId")
                         .HasColumnType("text");
 
+                    b.Property<int>("PaymentMethod")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("PointsEarned")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -809,6 +818,12 @@ namespace DuneFlame.Infrastructure.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<long?>("QuiqupOrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("QuiqupTrackingUrl")
+                        .HasColumnType("text");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -816,6 +831,9 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.Property<string>("ShippingAddress")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ShippingMethodName")
                         .HasColumnType("text");
 
                     b.Property<int>("Status")
@@ -1034,7 +1052,7 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool>("IsActive")
+                    b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Slug")
@@ -1225,6 +1243,9 @@ namespace DuneFlame.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AltText")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1248,6 +1269,29 @@ namespace DuneFlame.Infrastructure.Migrations
                     b.ToTable("ProductImages");
                 });
 
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductSlugHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OldSlug")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSlugHistories");
+                });
+
             modelBuilder.Entity("DuneFlame.Domain.Entities.ProductTranslation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1265,6 +1309,12 @@ namespace DuneFlame.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
+
+                    b.Property<string>("MetaDescription")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MetaTitle")
+                        .HasColumnType("text");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1309,6 +1359,9 @@ namespace DuneFlame.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("WeightKg")
+                        .HasColumnType("double precision");
 
                     b.HasKey("Id");
 
@@ -2201,6 +2254,17 @@ namespace DuneFlame.Infrastructure.Migrations
                 {
                     b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
                         .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("DuneFlame.Domain.Entities.ProductSlugHistory", b =>
+                {
+                    b.HasOne("DuneFlame.Domain.Entities.Product", "Product")
+                        .WithMany()
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

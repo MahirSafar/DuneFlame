@@ -1,0 +1,60 @@
+1. Komponent: ProductCard.razor
+Bu bizim müstəqil dizaynımızdır. O, kənardan parametr qəbul edir. Layihədə Components (və ya Components/Layout) qovluğunda ProductCard.razor adlı fayl yaradın və bu kodu yazın:
+
+HTML
+<div class="card m-2 shadow-sm" style="width: 18rem; display: inline-block; vertical-align: top;">
+    <div class="card-body">
+        <h5 class="card-title text-primary">@Name</h5>
+        <p class="card-text">Qiymət: <strong>@Price AZN</strong></p>
+        
+        <!-- İnteraktivlik üçün daxili klik hadisəsi -->
+        <button class="btn btn-sm btn-success" @onclick="NotifyPurchase">
+            Satın Al
+        </button>
+    </div>
+</div>
+
+@code {
+    // Kənardan qəbul ediləcək parametrlər
+    [Parameter] public string Name { get; set; } = "Məhsul";
+    [Parameter] public int Price { get; set; }
+    
+    // Al düyməsinə basanda səhifəyə xəbər vermək üçün EventCallback
+    [Parameter] public EventCallback<string> OnBuyClick { get; set; }
+
+    private async Task NotifyPurchase()
+    {
+        // Klik olunduğunu və hansı məhsul olduğunu üst səhifəyə ötürürük
+        await OnBuyClick.InvokeAsync(Name);
+    }
+}
+2. Səhifə: Store.razor
+Bu isə istifadəçinin daxil olacağı əsas səhifədir. Həmin yaratdığımız komponentləri burada çağıracağıq. Components/Pages qovluğunda Store.razor faylı yaradın:
+
+HTML
+@page "/store"
+@rendermode InteractiveServer
+
+<h3 class="mb-4">Bizim Mağaza</h3>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert alert-info w-50">@statusMessage</div>
+}
+
+<div class="product-list">
+    <!-- Komponenti fərqli datalarla təkrar-təkrar çağırırıq -->
+    <ProductCard Name="MacBook Pro" Price="3500" OnBuyClick="HandlePurchase" />
+    <ProductCard Name="iPhone 15" Price="2200" OnBuyClick="HandlePurchase" />
+    <ProductCard Name="AirPods Max" Price="1100" OnBuyClick="HandlePurchase" />
+</div>
+
+@code {
+    private string statusMessage = string.Empty;
+
+    // Komponentin daxilindəki düyməyə basılanda bu metod işə düşəcək
+    private void HandlePurchase(string productName)
+    {
+        statusMessage = $"Təbriklər! {productName} uğurla səbətə əlavə olundu.";
+    }
+}

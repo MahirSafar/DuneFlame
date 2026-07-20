@@ -17,7 +17,6 @@ public record ProductResponse(
     string Name,
     string Slug,
     string Description,
-    bool IsActive,
     Guid CategoryId,
     string CategoryName,
     Guid? BrandId,
@@ -28,7 +27,8 @@ public record ProductResponse(
     List<VariantDto> Variants,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    List<ProductImageDto> Images
+    List<ProductImageDto> Images,
+    bool IsDeleted = false
 );
 
 public record ProductCoffeeProfileDto(
@@ -46,6 +46,7 @@ public record VariantDto(
     string Sku,
     decimal Price,
     int? StockQuantity,
+    string StockStatus,
     List<VariantOptionDto> Options,
     List<VariantPriceDto> Prices
 );
@@ -63,5 +64,6 @@ public record VariantOptionDto(
 public record ProductImageDto(
     Guid Id,
     string ImageUrl,
-    bool IsMain
+    bool IsMain,
+    string? AltText
 );

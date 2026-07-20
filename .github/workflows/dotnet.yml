@@ -32,3 +32,46 @@ jobs:
       with:
         name: published-app
         path: ./publish
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      contents: read
+      id-token: write   # Required for Workload Identity Federation (keyless auth)
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Build and Push Docker image to Artifact Registry
+      run: |
+        gcloud builds submit \
+          --tag ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/duneflame/backend:${{ github.sha }} \
+          --project ${{ secrets.GCP_PROJECT_ID }}
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy duneflame-backend \
+          --image ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/duneflame/backend:${{ github.sha }} \
+          --region ${{ secrets.GCP_REGION }} \
+          --project ${{ secrets.GCP_PROJECT_ID }} \
+          --platform managed \
+          --service-account ${{ secrets.GCP_CLOUD_RUN_SERVICE_ACCOUNT }} \
+          --update-env-vars "\
+            GoogleMerchant__Enabled=true,\
+            GoogleMerchant__MerchantId=5794948202,\
+            GoogleMerchant__TargetCountry=AE,\
+            GoogleMerchant__ContentLanguage=en,\
+            GoogleMerchant__StorefrontBaseUrl=https://duneflame.com" \
+          --quiet

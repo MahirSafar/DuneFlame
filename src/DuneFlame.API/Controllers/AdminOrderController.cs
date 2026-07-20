@@ -21,7 +21,7 @@ public class AdminOrderController(
     private readonly IValidator<UpdateOrderStatusRequest> _updateStatusValidator = updateStatusValidator;
 
      [HttpGet]
-     public async Task<ActionResult<PagedResult<OrderDto>>> GetAllOrders(
+     public async Task<ActionResult<PagedResult<AdminOrderListDto>>> GetAllOrders(
          [FromQuery] int pageNumber = 1,
          [FromQuery] int pageSize = 10,
          [FromQuery] OrderStatus? status = null,
@@ -98,4 +98,41 @@ public class AdminOrderController(
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Updates the delivery status of an order independently from the fulfillment status.
+    /// Pre-existing: Pending=0, InTransit=1, Delivered=2, Returned=3.
+    /// Quiqup states: ReadyForCollection=4, PickedUp=5, Cancelled=6, Failed=7.
+    /// </summary>
+    [HttpPut("{id:guid}/delivery-status")]
+    public async Task<IActionResult> UpdateDeliveryStatus(Guid id, [FromBody] UpdateDeliveryStatusRequest request)
+    {
+        if (!Enum.IsDefined(typeof(DeliveryStatus), request.DeliveryStatus))
+            return BadRequest(new { message = "Invalid delivery status value." });
+
+        try
+        {
+            var deliveryStatus = (DeliveryStatus)request.DeliveryStatus;
+            await _adminOrderService.UpdateDeliveryStatusAsync(id, deliveryStatus);
+            return Ok(new { message = "Delivery status updated successfully.", deliveryStatus = deliveryStatus.ToString() });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }
+
+/// <summary>Request body for the delivery-status update endpoint.</summary>
+public record UpdateDeliveryStatusRequest(
+    /// <summary>
+    /// Integer value of the DeliveryStatus enum.
+    /// Pre-existing: 0=Pending, 1=InTransit, 2=Delivered, 3=Returned.
+    /// Quiqup: 4=ReadyForCollection, 5=PickedUp, 6=Cancelled, 7=Failed.
+    /// </summary>
+    int DeliveryStatus
+);

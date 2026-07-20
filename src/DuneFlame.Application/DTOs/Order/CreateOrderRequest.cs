@@ -1,3 +1,5 @@
+using DuneFlame.Domain.Enums;
+
 namespace DuneFlame.Application.DTOs.Order;
 
 /// <summary>
@@ -10,5 +12,8 @@ public record CreateOrderRequest(
     string Currency,
     string? PaymentIntentId = null,
     bool UsePoints = false,
-    string LanguageCode = "en"
+    string LanguageCode = "en",
+    OrderChannel Channel = OrderChannel.Web,
+    string? ShippingMethodName = null,
+    PaymentMethod PaymentMethod = PaymentMethod.Online
 );

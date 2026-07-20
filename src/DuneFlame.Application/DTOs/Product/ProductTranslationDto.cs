@@ -7,5 +7,7 @@ namespace DuneFlame.Application.DTOs.Product;
 public record ProductTranslationDto(
     string LanguageCode,
     string Name,
-    string Description
+    string Description,
+    string? MetaTitle,
+    string? MetaDescription
 );

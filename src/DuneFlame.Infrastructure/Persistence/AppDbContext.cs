@@ -1,4 +1,4 @@
-﻿using DuneFlame.Domain.Entities;
+using DuneFlame.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<ContactMessage> ContactMessages { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<ProductTranslation> ProductTranslations { get; set; }
+    public DbSet<ProductSlugHistory> ProductSlugHistories { get; set; }
     public DbSet<FlavourNote> FlavourNotes { get; set; }
     public DbSet<FlavourNoteTranslation> FlavourNoteTranslations { get; set; }
     public DbSet<Category> Categories { get; set; }

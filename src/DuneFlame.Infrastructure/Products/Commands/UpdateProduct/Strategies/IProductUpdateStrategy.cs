@@ -1,6 +1,4 @@
 ﻿using DuneFlame.Application.Products.Commands.UpdateProduct;
-using DuneFlame.Domain.Entities;
-using DuneFlame.Infrastructure.Persistence;
 
 namespace DuneFlame.Infrastructure.Products.Commands.UpdateProduct.Strategies;
 

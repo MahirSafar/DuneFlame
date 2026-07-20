@@ -21,7 +21,6 @@ public class CreateWholesaleLeadRequestValidator : AbstractValidator<CreateWhole
             .MaximumLength(200);
 
         RuleFor(x => x.Phone)
-            .NotEmpty()
             .MaximumLength(30);
 
         RuleFor(x => x.BusinessType)

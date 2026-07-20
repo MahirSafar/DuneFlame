@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 
 namespace DuneFlame.Application.DTOs.Product;
 
@@ -61,5 +61,7 @@ public record VariantOptionCreateDto(
 public record ProductTranslationCreateDto(
     string LanguageCode,
     string Name,
-    string Description
+    string Description,
+    string? MetaTitle = null,
+    string? MetaDescription = null
 );

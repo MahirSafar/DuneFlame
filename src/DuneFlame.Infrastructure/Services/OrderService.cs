@@ -18,6 +18,7 @@ public class OrderService(
     ICurrencyProvider currencyProvider,
     IPaymentService paymentService,
     IShippingService shippingService,
+    IQuiqupDeliveryService quiqupDeliveryService,
     ILogger<OrderService> logger) : IOrderService
 {
     private readonly AppDbContext _context = context;
@@ -26,6 +27,7 @@ public class OrderService(
     private readonly ICurrencyProvider _currencyProvider = currencyProvider;
     private readonly IPaymentService _paymentService = paymentService;
     private readonly IShippingService _shippingService = shippingService;
+    private readonly IQuiqupDeliveryService _quiqupDeliveryService = quiqupDeliveryService;
     private readonly ILogger<OrderService> _logger = logger;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.SemaphoreSlim> _basketLocks = new();
 
@@ -157,7 +159,10 @@ public class OrderService(
                     PointsEarned = 0,
                     PaymentIntentId = paymentIntentId,
                     CurrencyCode = Enum.Parse<Currency>(requestCurrency, ignoreCase: true),
-                    LanguageCode = request.LanguageCode
+                    LanguageCode = request.LanguageCode,
+                    Channel = request.Channel,
+                    ShippingMethodName = request.ShippingMethodName,
+                    PaymentMethod = request.PaymentMethod   // COD vs Online — drives Quiqup payment_mode
                 };
 
                 decimal subtotal = 0;
@@ -607,8 +612,16 @@ public class OrderService(
                     attempt, MaxRetries, paymentIntentId);
 
                 // PHASE 1: Atomic Status Update with Optimistic Concurrency
+                // Load Items → ProductVariant → Product → Category so Phase 4's
+                // CreateOrderAsync can resolve per-category fallback weights.
+                // Note: null-forgiving (!) on nullable nav properties is intentional —
+                // EF Core handles null navigation gracefully; the ! suppresses CS8602.
                 var order = await _context.Orders
+                    .Include(o => o.ApplicationUser)           // customer name & phone for Quiqup destination
                     .Include(o => o.Items)
+                        .ThenInclude(i => i.ProductVariant!)
+                        .ThenInclude(pv => pv.Product!)
+                        .ThenInclude(p => p.Category)
                     .FirstOrDefaultAsync(o => o.PaymentIntentId == paymentIntentId);
 
                 if (order == null)
@@ -669,6 +682,63 @@ public class OrderService(
                 _logger.LogInformation(
                     "Payment success processed for Order {OrderId} with PaymentIntentId {PaymentIntentId}. Earned {Cashback} points",
                     order.Id, paymentIntentId, cashback);
+
+                // ── PHASE 4: Submit to Quiqup for last-mile delivery ──────────────────
+                // Non-critical path: a Quiqup API failure must NEVER roll back a
+                // successfully recorded payment. We fire-and-log-on-failure.
+                try
+                {
+                    // ── Idempotency guard ─────────────────────────────────────────────
+                    // Reload the QuiqupOrderId from DB inside Phase 4 to catch the case
+                    // where a concurrent admin retry-submit already created a Quiqup order
+                    // between Phase 1 (where 'order' was loaded) and now. Without this
+                    // guard both paths call CreateOrderAsync, producing duplicate orders.
+                    await _context.Entry(order).ReloadAsync();
+
+                    if (order.QuiqupOrderId is not null)
+                    {
+                        _logger.LogWarning(
+                            "[Quiqup] Phase 4 SKIPPED for Order {OrderId} — " +
+                            "QuiqupOrderId={QuiqupOrderId} already set (concurrent retry-submit). " +
+                            "Duplicate Quiqup order creation prevented.",
+                            order.Id, order.QuiqupOrderId);
+                        return;
+                    }
+
+                    _logger.LogInformation(
+                        "[Quiqup] Phase 4 — submitting Order {OrderId} to Quiqup delivery service.",
+                        order.Id);
+
+                    var quiqupResult = await _quiqupDeliveryService.CreateOrderAsync(order);
+
+                    // Persist Quiqup identifiers back to the Order row.
+                    // IMPORTANT: DeliveryStatus is set to Pending — not ReadyForCollection —
+                    // because POST /orders only creates the Quiqup order in a draft Pending state.
+                    // The actual transition to ready_for_collection requires a separate
+                    // MarkReadyForCollectionAsync call (AWB download + PUT /ready_for_collection)
+                    // which the admin triggers explicitly from the admin delivery panel.
+                    order.QuiqupOrderId     = quiqupResult.QuiqupOrderId;
+                    order.QuiqupTrackingUrl = quiqupResult.TrackingUrl;
+                    order.DeliveryStatus    = DeliveryStatus.Pending;
+
+                    _context.Orders.Update(order);
+                    await _context.SaveChangesAsync();
+
+                    _logger.LogInformation(
+                        "[Quiqup] Order {OrderId} submitted to Quiqup (Pending). " +
+                        "QuiqupOrderId={QuiqupOrderId}, TrackingUrl={TrackingUrl}. " +
+                        "Admin must call mark-ready to transition to ready_for_collection.",
+                        order.Id, quiqupResult.QuiqupOrderId, quiqupResult.TrackingUrl);
+                }
+                catch (Exception quiqupEx)
+                {
+                    // Log prominently but do NOT re-throw — payment is already committed.
+                    _logger.LogError(quiqupEx,
+                        "[Quiqup] FAILED to create Quiqup order for Order {OrderId} " +
+                        "(PaymentIntentId={PaymentIntentId}). " +
+                        "Order is paid but delivery must be submitted manually via the admin portal.",
+                        order.Id, paymentIntentId);
+                }
 
                 return; // Success - exit retry loop
             }
@@ -813,15 +883,22 @@ public class OrderService(
         }
     }
 
-    private async Task DeductStockForOrderAsync(IEnumerable<OrderItem> items)
+    public async Task DeductStockForOrderAsync(IEnumerable<OrderItem> items)
     {
         foreach (var item in items)
         {
-            var productVariant = await _context.ProductVariants.FirstOrDefaultAsync(v => v.Id == item.ProductVariantId);
-            if (productVariant != null && productVariant.StockQuantity.HasValue)
+            // EF Core verilənlər bazasına avtomatik olaraq ən ideal UPDATE sorğusunu atır
+            int affectedRows = await _context.ProductVariants
+                .Where(pv => pv.Id == item.ProductVariantId && pv.StockQuantity >= item.Quantity)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(pv => pv.StockQuantity, pv => pv.StockQuantity - item.Quantity)
+                );
+
+            // Əgər heç bir sətir dəyişməyibsə, deməli anbarda mal çatmayıb!
+            if (affectedRows == 0)
             {
-                // ATOMIC UPDATE: Prevents concurrent requests from overwriting each other's stock reduction
-                await _context.Database.ExecuteSqlInterpolatedAsync($"UPDATE ProductVariants SET StockQuantity = StockQuantity - {item.Quantity} WHERE Id = {productVariant.Id} AND StockQuantity >= {item.Quantity}");
+                _logger.LogWarning("Stock deduction failed for ProductVariantId: {ProductVariantId}. Insufficient stock.", item.ProductVariantId);
+                throw new InvalidOperationException("Anbarda kifayət qədər məhsul yoxdur!");
             }
         }
     }
@@ -891,7 +968,29 @@ public class OrderService(
             paymentTransactionId,
             order.PaymentIntentId,
             null, // ClientSecret is only included in CreateOrderResponse, not in OrderDto for GET requests
+            order.DeliveryStatus,
+            order.QuiqupTrackingUrl,
             orderItems
         );
+    }
+
+    public Task<bool> HasCompletedOrdersAsync(Guid userId) =>
+        _context.Orders.AnyAsync(o =>
+            o.UserId == userId &&
+            o.Status != OrderStatus.Cancelled &&
+            o.Status != OrderStatus.Pending);
+
+    public async Task SyncPaymentIntentIdAsync(Guid userId, string paymentIntentId)
+    {
+        var order = await _context.Orders
+            .Where(o => o.UserId == userId && o.Status == OrderStatus.Pending)
+            .OrderByDescending(o => o.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (order != null && string.IsNullOrEmpty(order.PaymentIntentId))
+        {
+            order.PaymentIntentId = paymentIntentId;
+            await _context.SaveChangesAsync();
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿using MediatR;
+using MediatR;
 using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
@@ -12,8 +12,7 @@ public record UpdateProductCommand : IRequest<bool>
     public string Description { get; init; } = string.Empty;
     public Guid CategoryId { get; init; }
     public Guid? BrandId { get; init; }
-    public bool IsActive { get; init; }
-    
+
     // Base properties
     public List<UpdateProductTranslationDto>? Translations { get; init; }
     public List<IFormFile>? Images { get; init; }
@@ -36,7 +35,9 @@ public record UpdateProductCommand : IRequest<bool>
 public record UpdateProductTranslationDto(
     string LanguageCode, 
     string Name, 
-    string Description
+    string Description,
+    string? MetaTitle = null,
+    string? MetaDescription = null
 );
 
 public record UpdateVariantDto(

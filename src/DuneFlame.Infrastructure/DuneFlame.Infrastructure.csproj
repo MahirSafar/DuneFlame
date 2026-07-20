@@ -7,6 +7,27 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="BackgroundJobs\**" />
+	  <Compile Remove="Baskets\**" />
+	  <Compile Remove="Orders\**" />
+	  <Compile Remove="Payments\**" />
+	  <Compile Remove="Repositories\**" />
+	  <Compile Remove="Users\**" />
+	  <EmbeddedResource Remove="BackgroundJobs\**" />
+	  <EmbeddedResource Remove="Baskets\**" />
+	  <EmbeddedResource Remove="Orders\**" />
+	  <EmbeddedResource Remove="Payments\**" />
+	  <EmbeddedResource Remove="Repositories\**" />
+	  <EmbeddedResource Remove="Users\**" />
+	  <None Remove="BackgroundJobs\**" />
+	  <None Remove="Baskets\**" />
+	  <None Remove="Orders\**" />
+	  <None Remove="Payments\**" />
+	  <None Remove="Repositories\**" />
+	  <None Remove="Users\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 	</ItemGroup>
 
@@ -16,6 +37,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="AutoMapper" Version="16.1.1" />
+		<PackageReference Include="Google.Apis.ShoppingContent.v2_1" Version="1.74.0.4136" />
 		<PackageReference Include="Google.Cloud.Storage.V1" Version="4.14.0" />
 		<PackageReference Include="MediatR" Version="14.1.0" />
 		<PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.1" />
@@ -28,11 +50,6 @@
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
 		<PackageReference Include="Stripe.net" Version="50.1.0" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Folder Include="BackgroundJobs\" />
-	  <Folder Include="Repositories\" />
 	</ItemGroup>
 
 	<ItemGroup>

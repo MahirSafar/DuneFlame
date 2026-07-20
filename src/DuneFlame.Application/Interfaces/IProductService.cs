@@ -1,5 +1,6 @@
 using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Product;
+using DuneFlame.Application.Products.Commands.UpdateProduct;
 
 namespace DuneFlame.Application.Interfaces;
 
@@ -7,6 +8,9 @@ public interface IProductService
 {
     // Create
     Task<Guid> CreateAsync(CreateProductRequest request);
+
+    // Update
+    Task<bool> UpdateAsync(UpdateProductCommand command);
 
     // Smart Upsell
     Task<DuneFlame.Application.DTOs.Basket.UpsellRecommendationDto?> GetUpsellRecommendationAsync(decimal gapAmount, List<Guid> excludedProductPriceIds, string currencyCode);

@@ -1,3 +1,4 @@
+using DuneFlame.Application.DTOs.Admin;
 using DuneFlame.Application.DTOs.Common;
 using DuneFlame.Application.DTOs.Order;
 using DuneFlame.Application.Interfaces;
@@ -53,7 +54,7 @@ public class AdminOrderService(
         }
     }
 
-     public async Task<PagedResult<OrderDto>> GetAllOrdersAsync(
+     public async Task<PagedResult<AdminOrderListDto>> GetAllOrdersAsync(
          int pageNumber = 1,
          int pageSize = 10,
          OrderStatus? status = null,
@@ -101,9 +102,9 @@ public class AdminOrderService(
                  .Take(pageSize)
                  .ToListAsync();
 
-             var orderDtos = orders.Select(MapToOrderDto).ToList();
+             var orderDtos = orders.Select(MapToAdminOrderListDto).ToList();
 
-             return new PagedResult<OrderDto>(
+             return new PagedResult<AdminOrderListDto>(
                  orderDtos,
                  totalCount,
                  pageNumber,
@@ -372,50 +373,67 @@ public class AdminOrderService(
         }
     }
 
-     private static OrderDto MapToOrderDto(Order order)
+     private static AdminOrderListDto MapToAdminOrderListDto(Order order)
      {
-         var orderItems = order.Items.Select(oi => new OrderItemDto(
-             oi.Id,
-             oi.ProductVariantId,
-             oi.ProductName,
-             oi.UnitPrice,
-             oi.Quantity
-         )).ToList();
-
-         var targetCurrency = order.CurrencyCode;
-
-         // Extract customer details with null safety
+         // Customer details with null safety
          var customerName = order.ApplicationUser != null
-             ? (string.IsNullOrWhiteSpace(order.ApplicationUser.FirstName) 
-                 ? order.ApplicationUser.UserName 
+             ? (string.IsNullOrWhiteSpace(order.ApplicationUser.FirstName)
+                 ? order.ApplicationUser.UserName
                  : $"{order.ApplicationUser.FirstName} {order.ApplicationUser.LastName}".Trim())
              : "Unknown Customer";
 
          var customerEmail = order.ApplicationUser?.Email ?? "No Email";
          var customerPhone = order.ApplicationUser?.PhoneNumber ?? "No Phone";
-         var shippingAddress = order.ShippingAddress ?? "No Address";
 
-         // Get the most recent successful payment transaction ID
-         var paymentTransactionId = order.PaymentTransactions
-             .Where(pt => pt.Status == "Succeeded")
+         // Normalise payment status to English UI labels
+         var latestTransaction = order.PaymentTransactions
              .OrderByDescending(pt => pt.CreatedAt)
-             .FirstOrDefault()?.TransactionId;
+             .FirstOrDefault();
 
-         return new OrderDto(
+         var paymentStatus = latestTransaction?.Status?.ToLowerInvariant() switch
+         {
+             "succeeded" or "success" or "paid" or "captured" => "Paid",
+             "refunded" or "refund"                           => "Refunded",
+             "failed"   or "failure" or "declined"           => "Failed",
+             _                                                => "Pending"
+         };
+
+         // Total quantity across all line items
+         var itemsCount = order.Items.Sum(i => i.Quantity);
+
+         return new AdminOrderListDto(
              order.Id,
-             order.UserId,
-             order.Status,
-             order.TotalAmount,
-             order.CurrencyCode,
+             order.Id.ToString()[..8].ToUpperInvariant(),
              order.CreatedAt,
-             shippingAddress,
              customerName,
              customerEmail,
              customerPhone,
-             paymentTransactionId,
+             order.Channel,
+             order.TotalAmount,
+             order.CurrencyCode,
+             paymentStatus,
              order.PaymentIntentId,
-             null,
-             orderItems
+             order.Status,
+             itemsCount,
+             order.DeliveryStatus,
+             order.ShippingMethodName,
+             order.QuiqupOrderId,
+             order.QuiqupTrackingUrl,
+             order.ShippingAddress ?? "No Address"
          );
      }
+
+     public async Task UpdateDeliveryStatusAsync(Guid orderId, DeliveryStatus deliveryStatus)
+     {
+         var order = await _context.Orders.FindAsync(orderId)
+             ?? throw new NotFoundException($"Order {orderId} not found.");
+
+         order.DeliveryStatus = deliveryStatus;
+         await _context.SaveChangesAsync();
+
+         _logger.LogInformation(
+             "Delivery status of order {OrderId} updated to {DeliveryStatus}",
+             orderId, deliveryStatus);
+     }
 }
+

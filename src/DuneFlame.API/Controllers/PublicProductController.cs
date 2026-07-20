@@ -3,6 +3,7 @@ using DuneFlame.Application.DTOs.Product;
 using DuneFlame.Application.Products.Queries.GetAllProducts;
 using DuneFlame.Application.Products.Queries.GetProductById;
 using DuneFlame.Application.Products.Queries.GetProductBySlug;
+using DuneFlame.Domain.Exceptions;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -65,6 +66,11 @@ public class PublicProductController(IMediator mediator) : ControllerBase
 
             return Ok(product);
         }
+        catch (ProductMovedPermanentlyException ex)
+        {
+            // Old slug — issue a 301 to the new canonical URL
+            return RedirectPermanent($"/api/v1/products/by-slug/{ex.NewSlug}");
+        }
         catch (KeyNotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
@@ -82,6 +88,11 @@ public class PublicProductController(IMediator mediator) : ControllerBase
         {
             var product = await _mediator.Send(new GetProductBySlugQuery(slug));
             return Ok(product);
+        }
+        catch (ProductMovedPermanentlyException ex)
+        {
+            // Old slug — issue a 301 to the new canonical URL
+            return RedirectPermanent($"/api/v1/products/by-slug/{ex.NewSlug}");
         }
         catch (KeyNotFoundException ex)
         {

@@ -88,11 +88,17 @@ public static class DbInitializer
             await SeedFiorenzatoGrindersAsync(context, logger);
             await SeedAccessoriesAsync(context, logger);
 
+            // 6.5 Backfill SEO metadata for all seeded products (idempotent — skips rows already set)
+            await SeedProductSeoAsync(context, logger);
+
             // 7. Seed Shipping Data (Countries, Cities, Rates)
             await SeedShippingDataAsync(context, logger);
 
             // 8. Seed / backfill master-data translations (Origins, RoastLevels, GrindTypes, FlavourNotes)
             await SeedMasterDataTranslationsAsync(context, logger);
+
+            // 9. Restore any seeded products that were accidentally soft-deleted
+            await RestoreSoftDeletedSeededProductsAsync(context, logger);
 
             logger.LogInformation("Database initialization completed successfully.");
             logger.LogInformation("✓ Multi-Currency Support: ProductPrices seeded for USD, AED");
@@ -154,9 +160,8 @@ public static class DbInitializer
             ["Ethiopia"]   = "إثيوبيا",
             ["Colombia"]   = "كولومبيا",
             ["Brazil"]     = "البرازيل",
-            ["Kenya"]      = "كينيا",
-            ["Costa Rica"] = "كوستاريكا",
-            ["Malaysia"]   = "ماليزيا"
+            ["Malaysia"]    = "ماليزيا",
+            ["El Salvador"] = "السلفادور"
         };
 
         var origins = await context.Origins.Include(o => o.Translations).ToListAsync();
@@ -344,8 +349,40 @@ public static class DbInitializer
             ["Tropical Fruit"] = "فاكهة استوائية",
             ["Sweet Tobacco"]  = "تبغ حلو",
             ["Dark Caramel"]   = "كراميل داكن",
-            ["Woody Spice"]    = "توابل خشبية"
+            ["Woody Spice"]    = "توابل خشبية",
+            ["Black Cherry"]      = "كرز أسود",
+            ["Dark Chocolate"]    = "شوكولاتة داكنة",
+            ["Hazelnut"]          = "بندق",
+            ["Grape"]             = "عنب",
+            ["Watermelon"]        = "بطيخ",
+            ["Mango"]             = "مانجو",
+            ["Papaya"]            = "بابايا",
+            ["Fruity"]            = "فاكهي",
+            ["Sweet Watermelon"]  = "بطيخ حلو",
+            ["Refreshing Acidity"]= "حموضة منعشة",
+            ["Sweet Finish"]      = "نهاية حلوة",
+            ["Berry"]             = "توت",
+            ["Apricot Notes"]     = "نوتات مشمش",
+            ["Grapes"]            = "عنب",
+            ["Red Grapes"]        = "عنب أحمر",
+            ["Plum"]              = "برقوق",
+            ["Apricot"]           = "مشمش",
+            ["Long Fruity Finish"]= "نهاية فاكهية طويلة",
+            ["Almond"]            = "لوز",
+            ["Brown Sugar"]       = "سكر بني",
+            ["Coconut"]           = "جوز هند",
+            ["Sweet Candy"]       = "حلوى",
+            ["Bright Sweetness"]  = "حلاوة مشرقة",
+            ["Pineapple"]         = "أناناس",
+            ["Winey"]             = "نبيذي",
+            ["Blueberry"]         = "توت أزرق",
+            ["Raspberry"]         = "توت عليق",
+            ["Raisin"]            = "زبيب",
+            ["Smooth Body"]       = "قوام ناعم",
+            ["Smooth Chocolate"]  = "شوكولاتة ناعمة",
+            ["Natural Sweetness"] = "حلاوة طبيعية"
         };
+
 
         var flavourNotes = await context.Set<FlavourNote>().Include(f => f.Translations).ToListAsync();
         foreach (var note in flavourNotes)
@@ -366,6 +403,74 @@ public static class DbInitializer
 
         await TrySaveAsync(context, logger, "MasterDataTranslations");
         logger.LogInformation("Master-data translations seeding completed.");
+    }
+
+    /// <summary>
+    /// Idempotent SEO backfill for all seeded products.
+    /// Runs on every startup — only fills null fields, never overwrites content
+    /// that has already been set (by a previous seed run or by the admin panel).
+    /// </summary>
+    private static async Task SeedProductSeoAsync(AppDbContext context, ILogger<AppDbContext> logger)
+    {
+        logger.LogInformation("Seeding product SEO metadata (MetaTitle, MetaDescription, AltText)...");
+
+        var products = await context.Products
+            .Include(p => p.Translations)
+            .Include(p => p.Images)
+            .ToListAsync();
+
+        int translationsUpdated = 0;
+        int imagesUpdated = 0;
+
+        foreach (var product in products)
+        {
+            // Resolve the English name once — used as the fallback for image alt text
+            var enName = product.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                         ?? product.Translations.FirstOrDefault()?.Name
+                         ?? product.Slug;
+
+            foreach (var translation in product.Translations)
+            {
+                var changed = false;
+
+                if (translation.MetaTitle is null)
+                {
+                    translation.MetaTitle = DuneFlame.Application.Common.SeoGenerator.GenerateMetaTitle(
+                        translation.Name, translation.LanguageCode);
+                    changed = true;
+                }
+
+                if (translation.MetaDescription is null)
+                {
+                    translation.MetaDescription = DuneFlame.Application.Common.SeoGenerator.GenerateMetaDescription(
+                        translation.Description);
+                    changed = true;
+                }
+
+                if (changed) translationsUpdated++;
+            }
+
+            foreach (var image in product.Images)
+            {
+                if (image.AltText is null)
+                {
+                    image.AltText = DuneFlame.Application.Common.SeoGenerator.GenerateAltText(enName);
+                    imagesUpdated++;
+                }
+            }
+        }
+
+        if (translationsUpdated + imagesUpdated > 0)
+        {
+            await TrySaveAsync(context, logger, "ProductSeo");
+            logger.LogInformation(
+                "Product SEO seeding completed: {T} translation rows, {I} image rows updated.",
+                translationsUpdated, imagesUpdated);
+        }
+        else
+        {
+            logger.LogInformation("Product SEO already up-to-date. No rows updated.");
+        }
     }
 
     private static async Task SeedSettingsAsync(AppDbContext context, ILogger<AppDbContext> logger)
@@ -395,7 +500,8 @@ public static class DbInitializer
             new() { Name = "Brazil" },
             new() { Name = "Kenya" },
             new() { Name = "Costa Rica" },
-            new() { Name = "Malaysia" }
+            new() { Name = "Malaysia" },
+            new() { Name = "El Salvador" }
         };
 
         await context.Origins.AddRangeAsync(origins);
@@ -658,6 +764,7 @@ public static class DbInitializer
         var ethiopiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Ethiopia");
         var colombiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Colombia");
         var malaysiaOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "Malaysia");
+        var elSalvadorOrigin = await context.Origins.FirstOrDefaultAsync(o => o.Name == "El Salvador");
 
         // --- Granular get-or-create guards for all master data ---
 
@@ -670,6 +777,12 @@ public static class DbInitializer
         var wholeBean = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Whole Bean");
         if (wholeBean == null) { wholeBean = new GrindType { Name = "Whole Bean" }; context.Add(wholeBean); }
 
+        var espressoGrind = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Espresso");
+        if (espressoGrind == null) { espressoGrind = new GrindType { Name = "Espresso" }; context.Add(espressoGrind); }
+
+        var filterGrind = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Filter");
+        if (filterGrind == null) { filterGrind = new GrindType { Name = "Filter" }; context.Add(filterGrind); }
+
         // Flush RoastLevels and GrindTypes before building the product graph so they
         // have stable DB-assigned IDs that EF Core can use for the join tables.
         await TrySaveAsync(context, logger, "RoastLevels/GrindTypes");
@@ -678,6 +791,8 @@ public static class DbInitializer
         mediumRoast = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Medium") ?? mediumRoast;
         lightRoast = await context.Set<RoastLevelEntity>().FirstOrDefaultAsync(r => r.Name == "Light") ?? lightRoast;
         wholeBean = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Whole Bean") ?? wholeBean;
+        espressoGrind = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Espresso") ?? espressoGrind;
+        filterGrind = await context.Set<GrindType>().FirstOrDefaultAsync(g => g.Name == "Filter") ?? filterGrind;
 
         // Get-or-create Weight attribute and its values to prevent duplicate inserts on retry
         var weightAttribute = await context.ProductAttributes.FirstOrDefaultAsync(a => a.Name == "Weight");
@@ -716,34 +831,34 @@ public static class DbInitializer
 
         var products = new List<Product>
         {
-            // 1. Brazil Lençóis
+
+            // 1. Brazil Lencois
             new Product
             {
-                Id = Guid.Parse("b8e278d7-0f7a-442f-bb10-8dc8d91a175c"),
+                Id = Guid.NewGuid(),
                 CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                Slug = "brazil-lenis",
-                IsActive = true,
-                CreatedAt = DateTime.Parse("2026-03-13T17:52:38.791374Z").ToUniversalTime(),
+                Slug = "brazil-lencois",
+                CreatedAt = DateTime.UtcNow,
                 Translations = new List<ProductTranslation>
                 {
                     new ProductTranslation
                     {
                         LanguageCode = "en",
-                        Name = "Brazil Lençóis",
+                        Name = "Brazil Lencois",
                         Description = "Brazil Lençóis is a smooth and well-balanced coffee grown in the rich soils of Brazil. It offers a naturally sweet profile with notes of chocolate, roasted nuts, and a hint of caramel. The medium body and low acidity make it an easy and enjoyable cup, perfect for both espresso and filter brewing. This coffee delivers a warm, comforting flavor with a clean finish."
                     },
                     new ProductTranslation
                     {
                         LanguageCode = "ar",
                         Name = "البرازيل لينسويس",
-                        Description = "قهوة البرازيل لينسويس هي قهوة ناعمة ومتوازنة تُزرع في تربة البرازيل الغنية. تتميز بطعم طبيعي حلو مع نكهات الشوكولاتة والمكسرات المحمصة ولمسة خفيفة من الكراميل. قوامها متوسط وحموضتها منخفضة، مما يجعلها كوبًا سهل الشرب ومناسبًا لتحضير الإسبريسو أو القهوة المفلترة. تقدم هذه القهوة مذاقًا دافئًا ومريحًا مع نهاية نظيفة وممتعة"
+                        Description = "قهوة البرازيل لينسويس هي قهوة ناعمة ومتوازنة تُزرع في تربة البرازيل الغنية. تتميز بطعم طبيعي حلو مع نكهات الشوكولاتة والمكسرات المحمصة ولمسة خفيفة من الكراميل. قوامها متوسط وحموضتها منخفضة، مما يجعلها كوبًا سهل الشرب ومناسبًا لتحضير الإسبريسو أو القهوة المفلترة. تقدم هذه القهوة مذاقًا دافئًا ومريحًا مع نهاية نظيفة وممتعة."
                     }
                 },
                 CoffeeProfile = new ProductCoffeeProfile
                 {
                     OriginId = brazilOrigin?.Id,
                     RoastLevels = new List<RoastLevelEntity> { mediumRoast },
-                    GrindTypes = new List<GrindType> { wholeBean },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
                     FlavourNotes = new List<FlavourNote>
                     {
                         new FlavourNote
@@ -780,53 +895,43 @@ public static class DbInitializer
                 },
                 Variants = new List<ProductVariant>
                 {
-                    new ProductVariant { Sku = "brazil-lenis-250g", Price = 46.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 46.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 12.51m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
-                    new ProductVariant { Sku = "brazil-lenis-1kg", Price = 154.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 154.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 41.89m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                    new ProductVariant { Sku = "brazil-lencois-250g", Price = 49.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 49.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 13.23m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "brazil-lencois-1kg", Price = 174.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 174.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 46.98m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
                 }
             },
+
             // 2. Ethiopia Guji Hambela
             new Product
             {
-                Id = Guid.Parse("c3ce8096-22ca-4fc5-88c2-4dc4ecdda191"),
+                Id = Guid.NewGuid(),
                 CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Slug = "ethiopia-guji-hambela",
-                IsActive = true,
-                CreatedAt = DateTime.Parse("2026-03-13T17:59:43.207652Z").ToUniversalTime(),
+                CreatedAt = DateTime.UtcNow,
                 Translations = new List<ProductTranslation>
                 {
                     new ProductTranslation
                     {
                         LanguageCode = "en",
                         Name = "Ethiopia Guji Hambela",
-                        Description = "Ethiopia Guji Hamebla is a vibrant and aromatic specialty coffee grown in the highlands of the Guji region. This coffee is known for its elegant floral character and bright sweetness. It offers delicate notes of jasmine and bergamot, complemented by soft floral tones and a juicy hint of peach. The cup is clean, complex, and beautifully balanced with a silky body and a refreshing finish."
+                        Description = "Ethiopia Guji Hambela is a vibrant and aromatic specialty coffee grown in the highlands of the Guji region. This coffee is known for its elegant floral character and bright sweetness. It offers delicate notes of orange blossom and berry, complemented by soft floral tones and a juicy hint of apricot. The cup is clean, complex, and beautifully balanced with a silky body and a refreshing finish."
                     },
                     new ProductTranslation
                     {
                         LanguageCode = "ar",
                         Name = "إثيوبيا غوجي هامبيلا",
-                        Description = "قهوة إثيوبيا غوجي هامبيلا هي قهوة مختصة مميزة تُزرع في المرتفعات العالية في منطقة غوجي في إثيوبيا. تتميز هذه القهوة بعطرها الزهري الأنيق وحلاوتها المشرقة. تقدم نكهات رقيقة من الياسمين والبرغموت مع لمسات زهرية لطيفة وإشارة فاكهية من الخوخ. الكوب متوازن ونظيف ومعقد، بقوام ناعم ونهاية منعشة وممتعة."
+                        Description = "قهوة إثيوبيا غوجي هامبيلا هي قهوة مختصة مميزة تُزرع في المرتفعات العالية في منطقة غوجي في إثيوبيا. تتميز هذه القهوة بعطرها الزهري الأنيق وحلاوتها المشرقة. تقدم نكهات رقيقة من زهر البرتقال والتوت مع لمسات زهرية لطيفة وإشارة فاكهية من المشمش. الكوب متوازن ونظيف ومعقد، بقوام ناعم ونهاية منعشة وممتعة."
                     }
                 },
                 CoffeeProfile = new ProductCoffeeProfile
                 {
                     OriginId = ethiopiaOrigin?.Id,
                     RoastLevels = new List<RoastLevelEntity> { mediumRoast },
-                    GrindTypes = new List<GrindType> { wholeBean },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
                     FlavourNotes = new List<FlavourNote>
                     {
                         new FlavourNote
                         {
                             DisplayOrder = 1,
-                            Name = "Jasmine",
-                            Translations = new List<FlavourNoteTranslation>
-                            {
-                                new() { LanguageCode = "en", Name = "Jasmine" },
-                                new() { LanguageCode = "ar", Name = "ياسمين" }
-                            }
-                        },
-                        new FlavourNote
-                        {
-                            DisplayOrder = 2,
                             Name = "Floral",
                             Translations = new List<FlavourNoteTranslation>
                             {
@@ -836,7 +941,558 @@ public static class DbInitializer
                         },
                         new FlavourNote
                         {
+                            DisplayOrder = 2,
+                            Name = "Orange Blossom",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Orange Blossom" },
+                                new() { LanguageCode = "ar", Name = "زهر البرتقال" }
+                            }
+                        },
+                        new FlavourNote
+                        {
                             DisplayOrder = 3,
+                            Name = "Berry",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Berry" },
+                                new() { LanguageCode = "ar", Name = "توت" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 4,
+                            Name = "Apricot Notes",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Apricot Notes" },
+                                new() { LanguageCode = "ar", Name = "نوتات مشمش" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "ethiopia-guji-hambela-250g", Price = 64.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 64.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 17.28m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "ethiopia-guji-hambela-1kg", Price = 224.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 224.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 60.48m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                }
+            },
+
+            // 3. Ethiopian Kaffa
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "ethiopian-kaffa",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Ethiopian Kaffa",
+                        Description = "Ethiopian Kaffa is a rich and expressive coffee with a layered fruity profile and a smooth chocolatey depth. It delivers notes of black cherry, dark berries, and dark chocolate, creating a balanced cup with both sweetness and structure. The body is medium and silky, while the acidity is gentle and well-integrated, giving a clean yet vibrant finish suitable for both espresso and filter brewing."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "كافا الإثيوبية",
+                        Description = "كافا الإثيوبية هي قهوة غنية ومعبرة بطابع فاكهي متعدد الطبقات مع عمق واضح من الشوكولاتة الداكنة. تقدم نكهات الكرز الأسود والتوت الداكن والشوكولاتة الداكنة لتكوّن كوباً متوازناً يجمع بين الحلاوة والبنية القوية. يتميز القوام بأنه متوسط وناعم مع حموضة خفيفة ومتوازنة تعطي نهاية نظيفة وحيوية مناسبة للإسبريسو والقهوة المفلترة."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = ethiopiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Fruity",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Fruity" },
+                                new() { LanguageCode = "ar", Name = "فاكهي" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Black Cherry",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Black Cherry" },
+                                new() { LanguageCode = "ar", Name = "كرز أسود" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Dark Chocolate",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Dark Chocolate" },
+                                new() { LanguageCode = "ar", Name = "شوكولاتة داكنة" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "ethiopian-kaffa-250g", Price = 49.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 49.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 13.23m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "ethiopian-kaffa-1kg", Price = 174.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 174.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 46.98m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                }
+            },
+
+            // 4. Colombia Milagro XO
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "colombia-milagro-xo",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Colombia Milagro XO",
+                        Description = "Colombia Milagro XO is a natural anaerobic processed coffee that delivers an explosion of flavors. Carefully cultivated in Huila, it bursts with the rich essence of grapes and red grapes, perfectly balanced by the juicy sweetness of plum. The cup finishes beautifully with a lingering, sweet finish that leaves a memorable impression. Perfect for those seeking a highly aromatic and complex coffee."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "كولومبيا ميلاغرو إكس أو",
+                        Description = "كولومبيا ميلاغرو إكس أو هي قهوة معالجة بالطريقة اللاهوائية الطبيعية تقدم انفجاراً في النكهات. زُرعت بعناية في هويلا، وتفيض بجوهر العنب والعنب الأحمر الغني، ومتوازنة بشكل مثالي مع حلاوة البرقوق العصيرية. ينتهي الكوب بنهاية حلوة طويلة تترك انطباعاً لا يُنسى. مثالية لمن يبحث عن قهوة معقدة وعطرية للغاية."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Grapes",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Grapes" },
+                                new() { LanguageCode = "ar", Name = "عنب" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Red Grapes",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Red Grapes" },
+                                new() { LanguageCode = "ar", Name = "عنب أحمر" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Plum",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Plum" },
+                                new() { LanguageCode = "ar", Name = "برقوق" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 4,
+                            Name = "Sweet Finish",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Sweet Finish" },
+                                new() { LanguageCode = "ar", Name = "نهاية حلوة" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "colombia-milagro-xo-250g", Price = 69.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 69.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 18.63m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "colombia-milagro-xo-1kg", Price = 249.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 249.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 67.23m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                }
+            },
+
+            // 5. El Salvador San Agustin Anaerobic
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "el-salvador-san-agustin-anaerobic",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "El Salvador San Agustin Anaerobic",
+                        Description = "El Salvador San Agustin Anaerobic brings a refined complexity to the classic San Agustin profile. Through careful anaerobic processing, this coffee develops a profound sweetness characterized by rich chocolate and bright apricot notes. It offers an incredible mouthfeel with a long, satisfying fruity finish. An exceptional choice for a dynamic and engaging cup of espresso or filter."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "السلفادور سان أغوستين لا هوائي",
+                        Description = "تضفي قهوة السلفادور سان أغوستين اللاهوائية تعقيداً راقياً على البروفايل الكلاسيكي لسان أغوستين. من خلال المعالجة اللاهوائية الدقيقة، تطور هذه القهوة حلاوة عميقة تتميز بنكهات الشوكولاتة الغنية والمشمش المشرق. تقدم قواماً رائعاً مع نهاية فاكهية طويلة ومرضية. خيار استثنائي لكوب قهوة ديناميكي وجذاب."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = elSalvadorOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Chocolate",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Chocolate" },
+                                new() { LanguageCode = "ar", Name = "شوكولاتة" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Apricot",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Apricot" },
+                                new() { LanguageCode = "ar", Name = "مشمش" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Long Fruity Finish",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Long Fruity Finish" },
+                                new() { LanguageCode = "ar", Name = "نهاية فاكهية طويلة" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "el-salvador-san-agustin-anaerobic-250g", Price = 69.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 69.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 18.63m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "el-salvador-san-agustin-anaerobic-1kg", Price = 244.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 244.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 65.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                }
+            },
+
+            // 6. El Salvador San Agustin
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "el-salvador-san-agustin",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "El Salvador San Agustin",
+                        Description = "El Salvador San Agustin is a smooth and elegant coffee with a refined sweetness and creamy texture. It features notes of roasted almond, comforting brown sugar, and rich chocolate, creating a well-rounded and deeply satisfying cup. The flavor is balanced with a gentle acidity and a silky mouthfeel, finishing with a sweet, lingering aftertaste that works beautifully for any brewing method."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "السلفادور سان أغوستين",
+                        Description = "السلفادور سان أغوستين هي قهوة ناعمة وأنيقة تتميز بحلاوة راقية وقوام كريمي. تقدم نكهات اللوز المحمص والسكر البني المريح والشوكولاتة الغنية لتكوّن كوباً مريحاً ومتوازناً. النكهة متوازنة مع حموضة خفيفة وقوام حريري ونهاية حلوة تدوم طويلاً، مما يجعلها مثالية لأي طريقة تحضير."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = elSalvadorOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Chocolate",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Chocolate" },
+                                new() { LanguageCode = "ar", Name = "شوكولاتة" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Almond",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Almond" },
+                                new() { LanguageCode = "ar", Name = "لوز" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Brown Sugar",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Brown Sugar" },
+                                new() { LanguageCode = "ar", Name = "سكر بني" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "el-salvador-san-agustin-250g", Price = 69.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 69.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 18.63m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "el-salvador-san-agustin-1kg", Price = 244.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 244.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 65.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                }
+            },
+
+            // 7. Coco Loco
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "coco-loco",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Coco Loco",
+                        Description = "Coco Loco is an innovative infused coffee from Colombia that transports you to a tropical paradise. Sourced from the renowned Huila region, this coffee is infused with coconut, resulting in a cup bursting with sweet candy flavors and a bright, vibrant sweetness. It is incredibly aromatic, smooth, and fun to drink, making it an absolute must-try for modern filter coffee enthusiasts."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "كوكو لوكو",
+                        Description = "كوكو لوكو هي قهوة مُنكّهة مبتكرة من كولومبيا تنقلك إلى الجنة الاستوائية. تم الحصول عليها من منطقة هويلا الشهيرة، وتم نقعها بجوز الهند لتنتج كوباً مليئاً بنكهات الحلوى وحلاوة مشرقة وحيوية. تتميز بعطرية لا تصدق ونعومة وممتعة في الشرب، مما يجعلها تجربة لا بد منها لعشاق القهوة المفلترة الحديثة."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Coconut",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Coconut" },
+                                new() { LanguageCode = "ar", Name = "جوز هند" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Sweet Candy",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Sweet Candy" },
+                                new() { LanguageCode = "ar", Name = "حلوى" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Bright Sweetness",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Bright Sweetness" },
+                                new() { LanguageCode = "ar", Name = "حلاوة مشرقة" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "coco-loco-250g", Price = 144.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 144.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 38.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                }
+            },
+
+            // 8. Melon Pie
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "melon-pie",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Melon Pie",
+                        Description = "Melon Pie is a vibrant infused coffee with a juicy and refreshing tropical character. It opens with sweet watermelon notes followed by delicate jasmine florals and a bright, lively refreshing acidity. The cup is smooth, aromatic, and playful, with a clean sweetness and a refreshing fruity finish that makes it ideal for filter coffee lovers seeking something unique and expressive."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "ميلون باي",
+                        Description = "ميلون باي هي قهوة مُنكّهة نابضة بالحياة بطابع استوائي عصيري ومنعش. تبدأ بنكهة البطيخ الحلو يليها عطر الياسمين الزهري مع حموضة مشرقة وحيوية. الكوب ناعم وعطري وممتع مع حلاوة نظيفة ونهاية فاكهية منعشة تجعلها مثالية لعشاق القهوة المفلترة الباحثين عن تجربة مميزة ومختلفة."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Sweet Watermelon",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Sweet Watermelon" },
+                                new() { LanguageCode = "ar", Name = "بطيخ حلو" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Refreshing Acidity",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Refreshing Acidity" },
+                                new() { LanguageCode = "ar", Name = "حموضة منعشة" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Jasmine",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Jasmine" },
+                                new() { LanguageCode = "ar", Name = "ياسمين" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "melon-pie-250g", Price = 144.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 144.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 38.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                }
+            },
+
+            // 9. Pinacolada
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "pinacolada",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Pinacolada",
+                        Description = "Pinacolada brings the festive flavors of the tropics straight to your cup. This infused Colombian coffee features a distinct profile highlighted by bright pineapple, luscious papaya, and a sophisticated winey undertone. With a light roast that perfectly preserves its delicate complexities, it shines exceptionally well as a filter brew, offering a vibrant, fruity, and unforgettable experience."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "بينا كولادا",
+                        Description = "تجلب بينا كولادا نكهات المناطق الاستوائية الاحتفالية مباشرة إلى كوبك. تتميز هذه القهوة الكولومبية المُنكّهة ببروفايل مميز يبرز فيه الأناناس المشرق والبابايا اللذيذة ونغمة نبيذية راقية. مع تحميص خفيف يحافظ بشكل مثالي على تعقيداتها الدقيقة، تتألق بشكل استثنائي في التقطير لتقدم تجربة حيوية وفاكهية لا تُنسى."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Pineapple",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Pineapple" },
+                                new() { LanguageCode = "ar", Name = "أناناس" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Winey",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Winey" },
+                                new() { LanguageCode = "ar", Name = "نبيذي" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Papaya",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Papaya" },
+                                new() { LanguageCode = "ar", Name = "بابايا" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "pinacolada-250g", Price = 144.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 144.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 38.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                }
+            },
+
+            // 10. Peach Mirage
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "peach-mirage",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Peach Mirage",
+                        Description = "Peach Mirage is a tropical and aromatic infused coffee bursting with juicy stone fruit flavors. It highlights prominent peach, mango, and papaya notes, creating a sweet, silky, and vibrant cup. The profile is smooth and well-balanced with a gentle acidity and a long, fruity finish that feels refreshing and expressive, especially suited for highlighting through filter brewing."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "بيتش ميراج",
+                        Description = "بيتش ميراج هي قهوة مُنكّهة استوائية وعطرية مليئة بنكهات الفواكه العصيرية. تبرز فيها نكهات الخوخ والمانجو والبابايا لتقدم كوباً حلواً وحريرياً ونابضاً بالحياة. يتميز البروفايل بالتوازن مع حموضة خفيفة ونهاية فاكهية طويلة ومنعشة، مما يجعلها مناسبة جداً للتحضير المفلتر."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
                             Name = "Peach",
                             Translations = new List<FlavourNoteTranslation>
                             {
@@ -846,50 +1502,136 @@ public static class DbInitializer
                         },
                         new FlavourNote
                         {
-                            DisplayOrder = 4,
-                            Name = "Bergamot",
+                            DisplayOrder = 2,
+                            Name = "Mango",
                             Translations = new List<FlavourNoteTranslation>
                             {
-                                new() { LanguageCode = "en", Name = "Bergamot" },
-                                new() { LanguageCode = "ar", Name = "برغموت" }
+                                new() { LanguageCode = "en", Name = "Mango" },
+                                new() { LanguageCode = "ar", Name = "مانجو" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Papaya",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Papaya" },
+                                new() { LanguageCode = "ar", Name = "بابايا" }
                             }
                         }
                     }
                 },
                 Variants = new List<ProductVariant>
                 {
-                    new ProductVariant { Sku = "ethiopia-guji-hambela-250g", Price = 53.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 53.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 14.42m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
-                    new ProductVariant { Sku = "ethiopia-guji-hambela-1kg", Price = 179.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 179.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 48.69m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
+                    new ProductVariant { Sku = "peach-mirage-250g", Price = 144.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 144.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 38.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
                 }
             },
-            // 3. Tutti Frutti
+
+            // 11. Sweet Dreams
             new Product
             {
-                Id = Guid.Parse("5198a987-b969-4ac3-b7c8-c96c590420ad"),
+                Id = Guid.NewGuid(),
                 CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                Slug = "tutti-frutti",
-                IsActive = true,
-                CreatedAt = DateTime.Parse("2026-03-13T18:06:54.074036Z").ToUniversalTime(),
+                Slug = "sweet-dreams",
+                CreatedAt = DateTime.UtcNow,
                 Translations = new List<ProductTranslation>
                 {
                     new ProductTranslation
                     {
                         LanguageCode = "en",
-                        Name = "Tutti Frutti",
-                        Description = "Tutti Frutti is a bright and lively coffee with a vibrant fruity profile. It offers fragrant notes of orange blossom, juicy mandarin, and a mix of tropical fruits. The cup is sweet, refreshing, and aromatic, with a smooth body and a pleasant, fruity finish that makes every sip feel lively and enjoyable."
+                        Name = "Sweet Dreams",
+                        Description = "Sweet Dreams is a citric infused marvel from Huila that captivates with its berry-forward profile. It envelops the palate with rich notes of blueberry and raspberry, accompanied by the deep sweetness of raisin. The remarkably smooth body rounds out the experience, delivering a cup that is as comforting as it is exciting. An ideal choice for a relaxing, flavorful filter coffee."
                     },
                     new ProductTranslation
                     {
                         LanguageCode = "ar",
-                        Name = "توتي فروتي",
-                        Description = "قهوة توتي فروتي هي قهوة مشرقة وحيوية تتميز بطابع فاكهي غني. تقدم نكهات عطرية من زهر البرتقال واليوسفي العصيري ومزيج من الفواكه الاستوائية. الكوب حلو ومنعش وعطري، بقوام ناعم ونهاية فاكهية لطيفة تجعل كل رشفة ممتعة ومليئة بالحيوية.\r\n\r\n"
+                        Name = "سويت دريمز",
+                        Description = "سويت دريمز هي أعجوبة مُنكّهة بالحمضيات من هويلا تأسر الحواس ببروفايل مليء بالتوت. تغلف الحنك بنكهات غنية من التوت الأزرق وتوت العليق، مصحوبة بالحلاوة العميقة للزبيب. القوام الناعم بشكل ملحوظ يكمل التجربة، ليقدم كوباً مريحاً ومثيراً في نفس الوقت. خيار مثالي لقهوة مفلترة مليئة بالنكهات."
                     }
                 },
                 CoffeeProfile = new ProductCoffeeProfile
                 {
                     OriginId = colombiaOrigin?.Id,
                     RoastLevels = new List<RoastLevelEntity> { lightRoast },
-                    GrindTypes = new List<GrindType> { wholeBean },
+                    GrindTypes = new List<GrindType> { filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Blueberry",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Blueberry" },
+                                new() { LanguageCode = "ar", Name = "توت أزرق" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Raspberry",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Raspberry" },
+                                new() { LanguageCode = "ar", Name = "توت عليق" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 3,
+                            Name = "Raisin",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Raisin" },
+                                new() { LanguageCode = "ar", Name = "زبيب" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 4,
+                            Name = "Smooth Body",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Smooth Body" },
+                                new() { LanguageCode = "ar", Name = "قوام ناعم" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "sweet-dreams-250g", Price = 144.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 144.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 38.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                }
+            },
+
+            // 12. Tutti Frutti
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "tutti-frutti",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Tutti Frutti",
+                        Description = "Tutti Frutti is a bright and lively infused coffee with a vibrant fruity profile. It offers fragrant notes of orange blossom, juicy mandarin, and a mix of tropical fruits. The cup is sweet, refreshing, and aromatic, with a smooth body and a pleasant, fruity finish that makes every sip feel lively and enjoyable."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "توتي فروتي",
+                        Description = "توتي فروتي هي قهوة مُنكّهة مشرقة وحيوية تتميز بطابع فاكهي غني. تقدم نكهات عطرية من زهر البرتقال واليوسفي العصيري ومزيج من الفواكه الاستوائية. الكوب حلو ومنعش وعطري، بقوام ناعم ونهاية فاكهية لطيفة تجعل كل رشفة ممتعة ومليئة بالحيوية."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { lightRoast },
+                    GrindTypes = new List<GrindType> { filterGrind },
                     FlavourNotes = new List<FlavourNote>
                     {
                         new FlavourNote
@@ -926,17 +1668,17 @@ public static class DbInitializer
                 },
                 Variants = new List<ProductVariant>
                 {
-                    new ProductVariant { Sku = "tutti-frutti-250g", Price = 139.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 139.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 37.81m } }, StockQuantity = 98, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                    new ProductVariant { Sku = "tutti-frutti-250g", Price = 144.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 144.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 38.88m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
                 }
             },
-            // 4. Dokha
+
+            // 13. Dokha
             new Product
             {
-                Id = Guid.Parse("56af9d84-d249-4de3-97f2-c0046e15ac44"),
+                Id = Guid.NewGuid(),
                 CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Slug = "dokha",
-                IsActive = true,
-                CreatedAt = DateTime.Parse("2026-03-13T18:03:42.765985Z").ToUniversalTime(),
+                CreatedAt = DateTime.UtcNow,
                 Translations = new List<ProductTranslation>
                 {
                     new ProductTranslation
@@ -956,7 +1698,7 @@ public static class DbInitializer
                 {
                     OriginId = malaysiaOrigin?.Id,
                     RoastLevels = new List<RoastLevelEntity> { lightRoast },
-                    GrindTypes = new List<GrindType> { wholeBean },
+                    GrindTypes = new List<GrindType> { filterGrind },
                     FlavourNotes = new List<FlavourNote>
                     {
                         new FlavourNote
@@ -993,7 +1735,65 @@ public static class DbInitializer
                 },
                 Variants = new List<ProductVariant>
                 {
-                    new ProductVariant { Sku = "dokha-250g", Price = 139.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 139.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 37.81m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                    new ProductVariant { Sku = "dokha-250g", Price = 139.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 139.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 37.53m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } }
+                }
+            },
+
+            // 14. Colombia Decaf
+            new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = coffeeBeansCategory.Id, BrandId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Slug = "colombia-decaf",
+                CreatedAt = DateTime.UtcNow,
+                Translations = new List<ProductTranslation>
+                {
+                    new ProductTranslation
+                    {
+                        LanguageCode = "en",
+                        Name = "Colombia Decaf",
+                        Description = "Colombia Decaf offers all the pleasure of specialty coffee without the caffeine. Decaffeinated carefully to preserve its inherent qualities, it boasts a comforting profile dominated by smooth chocolate and a delightful natural sweetness. It brews beautifully as both espresso and filter, making it the perfect everyday coffee for any time of the day."
+                    },
+                    new ProductTranslation
+                    {
+                        LanguageCode = "ar",
+                        Name = "كولومبيا ديكاف",
+                        Description = "كولومبيا ديكاف تقدم كل متعة القهوة المختصة بدون الكافيين. تم نزع الكافيين منها بعناية للحفاظ على خصائصها المتأصلة، وتتميز ببروفايل مريح يغلب عليه الشوكولاتة الناعمة والحلاوة الطبيعية اللذيذة. تُحضّر بشكل جميل سواء كإسبريسو أو قهوة مفلترة، مما يجعلها القهوة المثالية في أي وقت من اليوم."
+                    }
+                },
+                CoffeeProfile = new ProductCoffeeProfile
+                {
+                    OriginId = colombiaOrigin?.Id,
+                    RoastLevels = new List<RoastLevelEntity> { mediumRoast },
+                    GrindTypes = new List<GrindType> { espressoGrind, filterGrind },
+                    FlavourNotes = new List<FlavourNote>
+                    {
+                        new FlavourNote
+                        {
+                            DisplayOrder = 1,
+                            Name = "Smooth Chocolate",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Smooth Chocolate" },
+                                new() { LanguageCode = "ar", Name = "شوكولاتة ناعمة" }
+                            }
+                        },
+                        new FlavourNote
+                        {
+                            DisplayOrder = 2,
+                            Name = "Natural Sweetness",
+                            Translations = new List<FlavourNoteTranslation>
+                            {
+                                new() { LanguageCode = "en", Name = "Natural Sweetness" },
+                                new() { LanguageCode = "ar", Name = "حلاوة طبيعية" }
+                            }
+                        }
+                    }
+                },
+                Variants = new List<ProductVariant>
+                {
+                    new ProductVariant { Sku = "colombia-decaf-250g", Price = 59.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 59.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 15.93m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight250g.Id } } },
+                    new ProductVariant { Sku = "colombia-decaf-1kg", Price = 214.00m, Prices = new List<ProductVariantPrice> { new ProductVariantPrice { Currency = Currency.AED, Price = 214.00m }, new ProductVariantPrice { Currency = Currency.USD, Price = 57.78m } }, StockQuantity = 100, Options = new List<ProductVariantOption> { new ProductVariantOption { ProductAttributeValueId = weight1kg.Id } } }
                 }
             }
         };
@@ -1173,7 +1973,6 @@ public static class DbInitializer
                 CategoryId = GetCategory(item.CategoryName).Id,
                 BrandId = mhwBrand.Id,
                 Slug = slug,
-                IsActive = true,
                 Translations = new List<ProductTranslation>
                 {
                     new() { LanguageCode = "en", Name = item.NameEn, Description = item.DescriptionEn },
@@ -1721,7 +2520,6 @@ public static class DbInitializer
                 CategoryId = category.Id,
                 BrandId = brand.Id,
                 Slug = g.Name.ToLower().Replace(" ", "-").Replace("(", "").Replace(")", "").Replace(",", "").Replace("/", "-").Replace("®", "").Replace(":", ""),
-                IsActive = true,
                 Translations = new List<ProductTranslation>
                 {
                     new() { LanguageCode = "en", Name = g.Name, Description = g.Description },
@@ -1762,5 +2560,42 @@ public static class DbInitializer
         await context.Products.AddRangeAsync(newProducts);
         await TrySaveAsync(context, logger, "FiorenzatoGrinders");
         logger.LogInformation("Fiorenzato Grinders seeded successfully.");
+    }
+
+    /// <summary>
+    /// Restores any seeded products that were accidentally soft-deleted.
+    /// This runs after all seed functions so that products whose IDs are known
+    /// at design-time are always visible after deployment.
+    /// </summary>
+    private static async Task RestoreSoftDeletedSeededProductsAsync(AppDbContext context, ILogger logger)
+    {
+        var seededProductIds = new[]
+        {
+            // Coffee beans (DuneFlame brand)
+            Guid.Parse("b8e278d7-0f7a-442f-bb10-8dc8d91a175c"),
+            Guid.Parse("c3ce8096-22ca-4fc5-88c2-4dc4ecdda191"),
+            Guid.Parse("5198a987-b969-4ac3-b7c8-c96c590420ad"),
+            Guid.Parse("56af9d84-d249-4de3-97f2-c0046e15ac44"),
+            Guid.Parse("d1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"),
+            Guid.Parse("e2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d"),
+            Guid.Parse("f3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e"),
+            Guid.Parse("a4d5e6f7-a8b9-4c0d-1e2f-3a4b5c6d7e8f"),
+        };
+
+        var deleted = await context.Products
+            .Where(p => seededProductIds.Contains(p.Id) && p.IsDeleted)
+            .ToListAsync();
+
+        if (deleted.Count == 0)
+            return;
+
+        foreach (var product in deleted)
+        {
+            product.IsDeleted = false;
+            product.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await TrySaveAsync(context, logger, "RestoreSoftDeletedSeededProducts");
+        logger.LogInformation("Restored {Count} soft-deleted seeded product(s).", deleted.Count);
     }
 }

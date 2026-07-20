@@ -1,11 +1,9 @@
-using DuneFlame.Application.DTOs.Payment;
-using DuneFlame.Application.Interfaces;
-using FluentValidation;
+using DuneFlame.Application.Payments.Commands.CreateCheckoutSession;
+using DuneFlame.Application.Payments.Commands.CreatePaymentIntent;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
-using DuneFlame.Infrastructure.Persistence;
 using System.Security.Claims;
 
 namespace DuneFlame.API.Controllers;
@@ -13,31 +11,17 @@ namespace DuneFlame.API.Controllers;
 [Route("api/v1/payments")]
 [ApiController]
 [Authorize]
-public class PaymentController(
-    IPaymentService paymentService,
-    IBasketService basketService,
-    AppDbContext context,
-    IValidator<CreatePaymentIntentRequest> createPaymentIntentValidator) : ControllerBase
+public class PaymentController(IMediator mediator) : ControllerBase
 {
-    private readonly IPaymentService _paymentService = paymentService;
-    private readonly IBasketService _basketService = basketService;
-    private readonly AppDbContext _context = context;
-    private readonly IValidator<CreatePaymentIntentRequest> _createPaymentIntentValidator = createPaymentIntentValidator;
-
     private Guid? GetUserId()
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-        {
-            return null; // Guest user - no ID
-        }
-        return userId;
+        var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return Guid.TryParse(claim, out var id) ? id : null;
     }
 
     /// <summary>
-    /// Create or update payment intent for a basket
+    /// Create or update payment intent for a basket.
     /// POST /api/v1/payments/{basketId}
-    /// Supports both authenticated and guest users for Express Checkout flow
     /// </summary>
     [HttpPost("{basketId}")]
     [AllowAnonymous]
@@ -46,242 +30,28 @@ public class PaymentController(
     {
         try
         {
-            var userId = GetUserId(); // Returns null for guest users
-
-            // Fetch basket from Redis
-            var basket = await _basketService.GetBasketAsync(basketId);
-            if (basket == null || basket.Items.Count == 0)
-            {
-                return BadRequest(new { message = "Basket is empty or not found" });
-            }
-
-            // ZERO-PAYMENT / DUMMY ID CHECK: If basket already has an internal payment intent ID,
-            // it means the order was created with rewards covering the entire amount.
-            // Return immediately without calling Stripe.
-            if (!string.IsNullOrEmpty(basket.PaymentIntentId) && 
-                (basket.PaymentIntentId == "internal_reward_payment" || 
-                 basket.PaymentIntentId == "internal_minimum_threshold" ||
-                 basket.PaymentIntentId.StartsWith("internal_")))
-            {
-                var internalResponse = new DuneFlame.Application.DTOs.Payment.PaymentIntentDto(
-                    ClientSecret: string.Empty,
-                    PaymentIntentId: basket.PaymentIntentId,
-                    Amount: 0,
-                    PaymentNotRequired: true);
-
-                return Ok(internalResponse);
-            }
-
-            // Calculate total amount from basket items
-            decimal totalAmount = 0;
-            foreach (var item in basket.Items)
-            {
-                totalAmount += item.Price * item.Quantity;
-            }
-
-            // WELCOME DISCOUNT LOGIC for first time buyers
-            if (userId.HasValue)
-            {
-                bool hasOrders = await _context.Orders.AnyAsync(o => 
-                    o.UserId == userId.Value && 
-                    o.Status != DuneFlame.Domain.Enums.OrderStatus.Cancelled && 
-                    o.Status != DuneFlame.Domain.Enums.OrderStatus.Pending);
-
-                if (!hasOrders)
-                {
-                    decimal welcomeDiscount = Math.Round(totalAmount * 0.10m, 2);
-                    totalAmount -= welcomeDiscount;
-                }
-            }
-
-            // ZERO-AMOUNT CHECK: If total is 0 or negative
-            // but this is a safety check), return without calling Stripe
-            if (totalAmount <= 0)
-            {
-                return BadRequest(new { message = "Invalid basket total" });
-            }
-
-            // Create or update PaymentIntent
-            var paymentIntent = await _paymentService.CreateOrUpdatePaymentIntentAsync(
-                basketId,
-                totalAmount,
-                basket.CurrencyCode.ToString().ToLower());
-
-            // Check if this is an internal payment intent (zero-payment order)
-            bool paymentNotRequired = string.IsNullOrEmpty(paymentIntent.ClientSecret) && 
-                (paymentIntent.PaymentIntentId.StartsWith("internal_"));
-
-            // Sync PaymentIntentId with the latest pending order for this user (authenticated users only)
-            // Guest users don't have pre-created orders at this point (order is created after payment confirmation)
-            if (userId.HasValue)
-            {
-                var order = await _context.Orders
-                    .Where(o => o.UserId == userId.Value && o.Status == DuneFlame.Domain.Enums.OrderStatus.Pending)
-                    .OrderByDescending(o => o.CreatedAt)
-                    .FirstOrDefaultAsync();
-
-                if (order != null && string.IsNullOrEmpty(order.PaymentIntentId))
-                {
-                    order.PaymentIntentId = paymentIntent.PaymentIntentId;
-                    _context.Orders.Update(order);
-                    await _context.SaveChangesAsync();
-                }
-            }
-
-            var response = new DuneFlame.Application.DTOs.Payment.PaymentIntentDto(
-                paymentIntent.ClientSecret,
-                paymentIntent.PaymentIntentId,
-                paymentIntent.Amount,
-                PaymentNotRequired: paymentNotRequired);
-
-            return Ok(response);
+            var result = await mediator.Send(new CreatePaymentIntentCommand(basketId, GetUserId()));
+            return Ok(result);
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = "Failed to create payment intent", error = ex.Message });
-        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return BadRequest(new { message = "Failed to create payment intent", error = ex.Message }); }
     }
 
     /// <summary>
-    /// Create payment intent for an order (legacy endpoint)
-    /// POST /api/v1/payments/create-intent
-    /// </summary>
-    [HttpPost("create-intent")]
-    [EnableRateLimiting("CheckoutPolicy")]
-    [Obsolete("Use POST /api/v1/payments/{basketId} instead")]
-    public async Task<IActionResult> CreatePaymentIntentLegacy([FromBody] CreatePaymentIntentRequest request)
-    {
-        var validationResult = await _createPaymentIntentValidator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            return BadRequest(validationResult.Errors);
-        }
-
-        try
-        {
-            var userId = GetUserId();
-
-            if (!userId.HasValue)
-            {
-                return Unauthorized(new { message = "User must be authenticated to use this endpoint" });
-            }
-
-            // Validate that the order belongs to the current user
-            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId);
-            if (order == null)
-            {
-                return NotFound(new { message = "Order not found or does not belong to you" });
-            }
-
-            // Check if order is already paid
-            if (order.Status.ToString() == "Paid")
-            {
-                return BadRequest(new { message = "Order is already paid" });
-            }
-
-            // Create PaymentTransaction record
-            var paymentTransaction = new DuneFlame.Domain.Entities.PaymentTransaction
-            {
-                OrderId = request.OrderId,
-                Amount = order.TotalAmount,
-                CurrencyCode = order.CurrencyCode,
-                Status = "Pending",
-                PaymentMethod = string.Empty
-            };
-
-            _context.PaymentTransactions.Add(paymentTransaction);
-            await _context.SaveChangesAsync();
-
-            // Create Stripe Payment Intent
-            var paymentIntent = await _paymentService.CreatePaymentIntentAsync(
-                order.TotalAmount,
-                order.CurrencyCode.ToString().ToLower(),
-                request.OrderId);
-
-            // Update PaymentTransaction with Stripe TransactionId
-            paymentTransaction.TransactionId = paymentIntent.PaymentIntentId;
-            _context.PaymentTransactions.Update(paymentTransaction);
-            await _context.SaveChangesAsync();
-
-            var response = new DuneFlame.Application.DTOs.Payment.PaymentIntentDto(
-                paymentIntent.ClientSecret,
-                paymentIntent.PaymentIntentId,
-                                order.TotalAmount);
-
-                            return Ok(response);
-                        }
-                        catch (KeyNotFoundException ex)
-                        {
-                            return NotFound(new { message = ex.Message });
-                        }
-                        catch (InvalidOperationException ex)
-                        {
-                            return BadRequest(new { message = ex.Message });
-                        }
-                        catch (Exception ex)
-                        {
-                            return BadRequest(new { message = "Failed to create payment intent", error = ex.Message });
-                        }
-                    }
-
-    /// <summary>
-    /// Create a Stripe Checkout Session for a product
+    /// Create a Stripe Checkout Session for a product.
     /// POST /api/v1/payments/checkout-session
     /// </summary>
     [HttpPost("checkout-session")]
     [EnableRateLimiting("CheckoutPolicy")]
-    public async Task<IActionResult> CreateCheckoutSession([FromBody] CreateCheckoutSessionRequest request)
+    public async Task<IActionResult> CreateCheckoutSession([FromBody] CreateCheckoutSessionCommand command)
     {
         try
         {
-            if (request == null || string.IsNullOrEmpty(request.ItemCode))
-            {
-                return BadRequest(new { message = "ItemCode is required" });
-            }
-
-            if (request.Quantity <= 0)
-            {
-                return BadRequest(new { message = "Quantity must be greater than zero" });
-            }
-
-            if (string.IsNullOrEmpty(request.SuccessUrl) || string.IsNullOrEmpty(request.CancelUrl))
-            {
-                return BadRequest(new { message = "SuccessUrl and CancelUrl are required" });
-            }
-
-            var userId = GetUserId();
-
-            if (!userId.HasValue)
-            {
-                return Unauthorized(new { message = "User must be authenticated to use this endpoint" });
-            }
-
-            // Create a temporary order for tracking
-            // In a real scenario, you might want to create this in a separate transaction
-            var orderId = Guid.NewGuid();
-
-            // Create Checkout Session with product ItemCode
-            var sessionId = await _paymentService.CreateCheckoutSessionAsync(
-                itemCode: request.ItemCode,
-                quantity: request.Quantity,
-                orderId: orderId,
-                basketId: null,
-                successUrl: request.SuccessUrl,
-                cancelUrl: request.CancelUrl);
-
-            return Ok(new { sessionId = sessionId });
+            if (GetUserId() == null) return Unauthorized(new { message = "User must be authenticated to use this endpoint" });
+            var sessionId = await mediator.Send(command);
+            return Ok(new { sessionId });
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = "Failed to create checkout session", error = ex.Message });
-        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { return BadRequest(new { message = "Failed to create checkout session", error = ex.Message }); }
     }
 }

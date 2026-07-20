@@ -34,7 +34,9 @@ public class ProductService(
     HybridCache cache,
     ICurrencyProvider currencyProvider,
     IHttpContextAccessor httpContextAccessor,
-    ILogger<ProductService> logger) : IProductService
+    ILogger<ProductService> logger,
+    IGoogleMerchantService merchantService,
+    IEnumerable<DuneFlame.Infrastructure.Products.Commands.UpdateProduct.Strategies.IProductUpdateStrategy> updateStrategies) : IProductService
 {
     private readonly AppDbContext _context = context;
     private readonly IFileService _fileService = fileService;
@@ -42,6 +44,8 @@ public class ProductService(
     private readonly ICurrencyProvider _currencyProvider = currencyProvider;
     private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
     private readonly ILogger<ProductService> _logger = logger;
+    private readonly IGoogleMerchantService _merchantService = merchantService;
+    private readonly IEnumerable<DuneFlame.Infrastructure.Products.Commands.UpdateProduct.Strategies.IProductUpdateStrategy> _updateStrategies = updateStrategies;
     private const string ProductCacheKeyPrefix = "product";
     private const string ProductTagPrefix = "product-tag";
     private const int CacheDurationSeconds = 600; // 10 minutes
@@ -64,7 +68,6 @@ public class ProductService(
             Slug = uniqueSlug,
             CategoryId = request.CategoryId,
             BrandId = request.BrandId,
-            IsActive = true,
             CoffeeProfile = isCoffee ? new ProductCoffeeProfile
             {
                 OriginId = request.OriginId
@@ -80,7 +83,7 @@ public class ProductService(
         {
             foreach (var translation in request.Translations)
             {
-                // Normalize language code to 2-char format (e.g., "en-US" ? "en")
+                // Normalize language code to 2-char format (e.g., "en-US" → "en")
                 var normalizedLanguageCode = !string.IsNullOrWhiteSpace(translation.LanguageCode)
                     ? translation.LanguageCode.Substring(0, Math.Min(2, translation.LanguageCode.Length)).ToLower()
                     : "en";
@@ -89,7 +92,12 @@ public class ProductService(
                 {
                     LanguageCode = normalizedLanguageCode,
                     Name = translation.Name,
-                    Description = translation.Description
+                    Description = translation.Description,
+                    // Auto-generate SEO fields when the admin hasn't provided them
+                    MetaTitle = translation.MetaTitle
+                              ?? SeoGenerator.GenerateMetaTitle(translation.Name, normalizedLanguageCode),
+                    MetaDescription = translation.MetaDescription
+                                   ?? SeoGenerator.GenerateMetaDescription(translation.Description)
                 });
             }
         }
@@ -103,7 +111,10 @@ public class ProductService(
             {
                 LanguageCode = languageCode,
                 Name = request.Name,
-                Description = request.Description
+                Description = request.Description,
+                // Auto-generate SEO fields (no DTO equivalent in the single-language path)
+                MetaTitle = SeoGenerator.GenerateMetaTitle(request.Name, languageCode),
+                MetaDescription = SeoGenerator.GenerateMetaDescription(request.Description)
             });
         }
 
@@ -243,6 +254,11 @@ public class ProductService(
         // Handle images if provided
         if (request.Images != null && request.Images.Count > 0)
         {
+            // Use the English product name for alt text (best for Google Image indexing)
+            var enName = product.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                         ?? product.Translations.FirstOrDefault()?.Name
+                         ?? product.Slug;
+
             bool isMainSet = false;
             foreach (var imageFile in request.Images)
             {
@@ -252,7 +268,9 @@ public class ProductService(
                 {
                     ImageUrl = imageUrl,
                     ProductId = product.Id,
-                    IsMain = !isMainSet
+                    IsMain = !isMainSet,
+                    // Auto-generate AltText — critical for Google Image indexing
+                    AltText = SeoGenerator.GenerateAltText(enName)
                 };
 
                 if (!isMainSet)
@@ -263,6 +281,18 @@ public class ProductService(
         }
 
         await _context.SaveChangesAsync();
+
+        // --- Fire Merchant Center sync (non-blocking — failures are logged, never thrown) ---
+        // Re-load the product with all navigations so the mapper has complete data
+        var syncProduct = await _context.Products
+            .Include(p => p.Translations)
+            .Include(p => p.Images)
+            .Include(p => p.Variants)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == product.Id);
+        if (syncProduct != null)
+            await _merchantService.SyncProductToMerchantCenterAsync(syncProduct);
+
         return product.Id;
     }
 
@@ -297,7 +327,7 @@ public class ProductService(
                     .ThenInclude(cp => cp!.GrindTypes)
                         .ThenInclude(g => g.Translations)
             .AsSingleQuery()
-            .Where(pv => pv.Product != null && pv.Product.IsActive && pv.StockQuantity > 0);
+            .Where(pv => pv.Product != null && !pv.Product.IsDeleted && pv.StockQuantity > 0);
 
         if (excludedProductVariantIds != null && excludedProductVariantIds.Any())
         {
@@ -456,9 +486,34 @@ public class ProductService(
         var currentCurrency = _currencyProvider.GetCurrentCurrency();
         var languageCode = ExtractLanguageFromRequest();
         var cacheKey = $"{ProductCacheKeyPrefix}:slug:{slug}:{currentCurrency}:{languageCode}";
-
         var cacheTag = $"{ProductTagPrefix}:slug:{slug}";
 
+        // --- Step 1: Try the normal active-product cache path ---
+        // We must execute the slug-history check OUTSIDE the cache factory because
+        // HybridCache factories must not throw domain-routing exceptions.
+        var activeProduct = await _context.Products
+            .AsNoTracking()
+            .Where(p => !p.IsDeleted && p.Slug == slug)
+            .Select(p => p.Id)   // cheap scalar check — no heavy includes yet
+            .FirstOrDefaultAsync();
+
+        if (activeProduct == Guid.Empty)
+        {
+            // --- Step 2: Active product not found — check slug history for a 301 redirect ---
+            var history = await _context.ProductSlugHistories
+                .AsNoTracking()
+                .Where(h => h.OldSlug == slug)
+                .Select(h => new { h.Product!.Slug, h.Product.IsDeleted })
+                .FirstOrDefaultAsync();
+
+            if (history != null && !history.IsDeleted)
+                throw new ProductMovedPermanentlyException(slug, history.Slug);
+
+            // Genuinely gone — history record exists for an inactive product, or never existed
+            throw new NotFoundException($"Product with slug '{slug}' not found.");
+        }
+
+        // --- Step 3: Active product confirmed — load full object graph via cache ---
         var response = await _cache.GetOrCreateAsync(
             cacheKey,
             async (cancellationToken) =>
@@ -499,7 +554,7 @@ public class ProductService(
                         .ThenInclude(cp => cp.FlavourNotes)
                             .ThenInclude(fn => fn.Translations)
                     .AsSplitQuery()
-                    .Where(p => p.IsActive && p.Slug == slug)
+                    .Where(p => !p.IsDeleted && p.Slug == slug)
                     .FirstOrDefaultAsync(cancellationToken)
                     ?? throw new NotFoundException($"Product with slug '{slug}' not found.");
 
@@ -581,7 +636,7 @@ public class ProductService(
                         .ThenInclude(cp => cp.FlavourNotes)
                             .ThenInclude(fn => fn.Translations)
                     .AsSplitQuery()
-                    .Where(p => p.IsActive)
+                    .Where(p => !p.IsDeleted)
                     .AsQueryable();
 
                 if (categoryId.HasValue)
@@ -629,27 +684,51 @@ public class ProductService(
                     "date-desc" => query.OrderByDescending(p => p.CreatedAt),
                     "name-asc" => query.OrderBy(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
                     "name-desc" => query.OrderByDescending(p => p.Translations.FirstOrDefault(t => t.LanguageCode == "en").Name),
-                    "price-asc" => query.OrderBy(p => p.Variants.FirstOrDefault().Price),
-                    "price-desc" => query.OrderByDescending(p => p.Variants.FirstOrDefault().Price),
+                    // Sort by the minimum currency-aware price across all variants.
+                    // Uses ProductVariantPrice (per-currency override) cast to decimal? so
+                    // FirstOrDefault() returns null (not 0) when no override row exists,
+                    // then ?? falls back to the base ProductVariant.Price (AED).
+                    // This pattern is fully translatable by EF Core → SQL COALESCE.
+                    "price-asc" => query.OrderBy(p => p.Variants.Min(v =>
+                        v.Prices
+                            .Where(pr => pr.Currency == currentCurrency)
+                            .Select(pr => (decimal?)pr.Price)
+                            .FirstOrDefault() ?? v.Price)),
+                    "price-desc" => query.OrderByDescending(p => p.Variants.Min(v =>
+                        v.Prices
+                            .Where(pr => pr.Currency == currentCurrency)
+                            .Select(pr => (decimal?)pr.Price)
+                            .FirstOrDefault() ?? v.Price)),
                     _ => query.OrderByDescending(p => p.CreatedAt)
                 };
 
-                // Apply price filter only if a specific range is requested (not the default 0-100)
-                // This allows all products to load initially on the Shop page
-                if ((minPrice.HasValue && minPrice.Value > 0) || (maxPrice.HasValue && maxPrice.Value < 10000))
+                // Apply price filter only if a specific range is requested (not the default 0–10000).
+                // Each bound is guarded separately so either can be omitted independently.
+                // The currency-aware price expression mirrors the sort key exactly:
+                //   (decimal?)pr.Price gives null (not 0) when no override row exists,
+                //   ?? v.Price falls back to the base AED price — translates to SQL COALESCE.
+                if (minPrice.HasValue && minPrice.Value > 0)
                 {
-                    var min = minPrice ?? 0;
-                    var max = maxPrice ?? decimal.MaxValue;
                     query = query.Where(p => p.Variants.Any(v =>
-                        v.Price >= min &&
-                        v.Price <= max));
+                        (v.Prices
+                            .Where(pr => pr.Currency == currentCurrency)
+                            .Select(pr => (decimal?)pr.Price)
+                            .FirstOrDefault() ?? v.Price) >= minPrice.Value));
 
-                    _logger.LogInformation("Applied price filter: {MinPrice} - {MaxPrice} for currency {Currency}", min, max, currentCurrency);
+                    _logger.LogInformation("Applied min price filter: {MinPrice} for currency {Currency}", minPrice.Value, currentCurrency);
                 }
-                else
+
+                if (maxPrice.HasValue && maxPrice.Value < 10000)
                 {
-                    _logger.LogInformation("Skipping price filter (default range). Loading all products for currency {Currency}", currentCurrency);
+                    query = query.Where(p => p.Variants.Any(v =>
+                        (v.Prices
+                            .Where(pr => pr.Currency == currentCurrency)
+                            .Select(pr => (decimal?)pr.Price)
+                            .FirstOrDefault() ?? v.Price) <= maxPrice.Value));
+
+                    _logger.LogInformation("Applied max price filter: {MaxPrice} for currency {Currency}", maxPrice.Value, currentCurrency);
                 }
+
 
                 var totalCount = await query.CountAsync(cancellationToken);
                 var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
@@ -671,7 +750,7 @@ public class ProductService(
             },
                     new HybridCacheEntryOptions
                     {
-                        Expiration = TimeSpan.FromSeconds(1) // Reduced to 1 second to bypass stale cache during testing
+                        Expiration = TimeSpan.FromSeconds(CacheDurationSeconds) // 10 minutes, consistent with single-product TTL
                     },
                     tags: new[] { cacheTag }
                 );
@@ -829,7 +908,7 @@ public class ProductService(
             },
                     new HybridCacheEntryOptions
                     {
-                        Expiration = TimeSpan.FromSeconds(1) // Reduced to 1 second to bypass stale cache during testing
+                        Expiration = TimeSpan.FromSeconds(CacheDurationSeconds) // 10 minutes, consistent with single-product TTL
                     },
                     tags: new[] { cacheTag }
                 );
@@ -846,46 +925,337 @@ public class ProductService(
         return languageCode.Substring(0, Math.Min(2, languageCode.Length)).ToLower();
     }
 
-    public async Task DeleteAsync(Guid id)
+    public async Task<bool> UpdateAsync(DuneFlame.Application.Products.Commands.UpdateProduct.UpdateProductCommand request)
     {
+        _logger.LogInformation("Starting UpdateAsync for Product ID: {Id}", request.Id);
+        _logger.LogInformation("Incoming Translation Langs: {Langs}", string.Join(",", request.Translations?.Select(t => t.LanguageCode) ?? Array.Empty<string>()));
+        _logger.LogInformation("Incoming Variant IDs: {Ids}", string.Join(",", request.Variants?.Select(v => v.Id?.ToString() ?? "null") ?? Array.Empty<string>()));
+
+        if (!string.IsNullOrWhiteSpace(request.SpecificationsJson))
+        {
+            try
+            {
+                request.Specifications = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(request.SpecificationsJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize SpecificationsJson: {Json}", request.SpecificationsJson);
+                throw new ArgumentException("Invalid Specifications JSON format.");
+            }
+        }
+
         var product = await _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Translations)
             .Include(p => p.Images)
             .Include(p => p.Variants)
-            .FirstOrDefaultAsync(p => p.Id == id)
-            ?? throw new NotFoundException($"Product with ID {id} not found.");
+                .ThenInclude(v => v.Prices)
+            .Include(p => p.Variants)
+                .ThenInclude(v => v.Options)
+            .Include(p => p.CoffeeProfile)
+                .ThenInclude(cp => cp.RoastLevels)
+            .Include(p => p.CoffeeProfile)
+                .ThenInclude(cp => cp.GrindTypes)
+            .Include(p => p.CoffeeProfile)
+                .ThenInclude(cp => cp.FlavourNotes)
+                    .ThenInclude(fn => fn.Translations)
+            .Include(p => p.EquipmentProfile)
+            .FirstOrDefaultAsync(p => p.Id == request.Id);
 
-        // Check if product has any existing orders
-        bool hasOrders = await _context.OrderItems
-            .AnyAsync(oi => product.Variants.Select(p => p.Id).Contains(oi.ProductVariantId));
+        if (product == null)
+            throw new KeyNotFoundException($"Product with ID {request.Id} not found.");
 
-        if (hasOrders)
+        // --- Slug change detection: capture current slug BEFORE any mutations ---
+        var oldSlug = product.Slug;
+
+        if (product.CategoryId != request.CategoryId) product.CategoryId = request.CategoryId;
+        if (product.BrandId != request.BrandId) product.BrandId = request.BrandId;
+
+        if (request.Translations != null)
         {
-            // Soft Delete: Product is referenced by orders, cannot hard delete
-            // Preserve product and images for order history integrity
-            product.IsActive = false;
-            _logger.LogInformation(
-                "Product {ProductId} soft-deleted because it has associated orders. Product remains in database with IsActive=false for order history",
-                id);
+            var existingTranslations = product.Translations.ToList();
+            var orphanedTranslations = existingTranslations
+                .Where(e => !request.Translations.Any(r => r.LanguageCode == e.LanguageCode))
+                .ToList();
+
+            if (orphanedTranslations.Any())
+                _context.ProductTranslations.RemoveRange(orphanedTranslations);
+
+            foreach (var tDto in request.Translations)
+            {
+                var existingTrans = product.Translations.FirstOrDefault(e => e.LanguageCode == tDto.LanguageCode);
+                if (existingTrans != null)
+                {
+                    if (existingTrans.Name != tDto.Name) existingTrans.Name = tDto.Name;
+                    if (existingTrans.Description != tDto.Description) existingTrans.Description = tDto.Description;
+                    // SEO fields: explicit admin value wins; auto-generate only when still null
+                    existingTrans.MetaTitle = tDto.MetaTitle
+                        ?? existingTrans.MetaTitle
+                        ?? SeoGenerator.GenerateMetaTitle(existingTrans.Name, existingTrans.LanguageCode);
+                    existingTrans.MetaDescription = tDto.MetaDescription
+                        ?? existingTrans.MetaDescription
+                        ?? SeoGenerator.GenerateMetaDescription(existingTrans.Description);
+                }
+                else
+                {
+                    product.Translations.Add(new ProductTranslation
+                    {
+                        ProductId = product.Id,
+                        LanguageCode = tDto.LanguageCode,
+                        Name = tDto.Name,
+                        Description = tDto.Description,
+                        MetaTitle = tDto.MetaTitle
+                                 ?? SeoGenerator.GenerateMetaTitle(tDto.Name, tDto.LanguageCode),
+                        MetaDescription = tDto.MetaDescription
+                                       ?? SeoGenerator.GenerateMetaDescription(tDto.Description)
+                    });
+                }
+            }
         }
         else
         {
-            // Hard Delete: No orders reference this product, safe to completely remove
-            foreach (var image in product.Images)
+            var existingEn = product.Translations.FirstOrDefault(e => e.LanguageCode == "en");
+            if (existingEn != null)
             {
-                _fileService.DeleteFile(image.ImageUrl);
+                if (existingEn.Name != request.Name) existingEn.Name = request.Name;
+                if (existingEn.Description != request.Description) existingEn.Description = request.Description;
+                // Auto-generate SEO fields from the (potentially updated) name/description when not yet set
+                existingEn.MetaTitle ??= SeoGenerator.GenerateMetaTitle(existingEn.Name, "en");
+                existingEn.MetaDescription ??= SeoGenerator.GenerateMetaDescription(existingEn.Description);
             }
-
-            _context.Products.Remove(product);
-            _logger.LogInformation(
-                "Product {ProductId} hard-deleted: removed from database and deleted all associated images",
-                id);
+            else
+            {
+                product.Translations.Add(new ProductTranslation
+                {
+                    LanguageCode = "en",
+                    Name = request.Name,
+                    Description = request.Description,
+                    MetaTitle = SeoGenerator.GenerateMetaTitle(request.Name, "en"),
+                    MetaDescription = SeoGenerator.GenerateMetaDescription(request.Description)
+                });
+            }
         }
 
+        var existingVariants = product.Variants.ToList();
+        var orphanedVariants = existingVariants.Where(e => !request.Variants.Any(r => r.Id == e.Id)).ToList();
+        if (orphanedVariants.Any())
+        {
+            _context.RemoveRange(orphanedVariants.SelectMany(v => v.Prices));
+            _context.RemoveRange(orphanedVariants.SelectMany(v => v.Options));
+            _context.RemoveRange(orphanedVariants);
+        }
+
+        foreach (var vDto in request.Variants)
+        {
+            if (vDto.Id.HasValue && vDto.Id.Value != Guid.Empty)
+            {
+                var existingVar = existingVariants.FirstOrDefault(e => e.Id == vDto.Id);
+                if (existingVar != null)
+                {
+                    if (existingVar.Sku != vDto.Sku) existingVar.Sku = vDto.Sku;
+                    if (existingVar.StockQuantity != vDto.StockQuantity) existingVar.StockQuantity = vDto.StockQuantity;
+
+                    var existingOptions = existingVar.Options.ToList();
+                    var orphanedOptions = existingOptions.Where(e => !vDto.Options.Any(o => o.ProductAttributeValueId == e.ProductAttributeValueId)).ToList();
+                    if (orphanedOptions.Any()) _context.RemoveRange(orphanedOptions);
+
+                    foreach (var opt in vDto.Options)
+                    {
+                        if (!existingOptions.Any(e => e.ProductAttributeValueId == opt.ProductAttributeValueId))
+                        {
+                            var newOpt = new ProductVariantOption
+                            {
+                                ProductVariantId = existingVar.Id,
+                                ProductAttributeValueId = opt.ProductAttributeValueId
+                            };
+                            _context.Entry(newOpt).State = EntityState.Added;
+                            existingVar.Options.Add(newOpt);
+                        }
+                    }
+
+                    if (vDto.Prices != null)
+                    {
+                        var existingPrices = existingVar.Prices.ToList();
+                        var orphanedPrices = existingPrices.Where(e => !vDto.Prices.Any(p => Enum.TryParse<Currency>(p.CurrencyCode, true, out var c) && c == e.Currency)).ToList();
+                        if (orphanedPrices.Any()) _context.RemoveRange(orphanedPrices);
+
+                        foreach (var priceDto in vDto.Prices)
+                        {
+                            if (Enum.TryParse<Currency>(priceDto.CurrencyCode, true, out var currencyCode))
+                            {
+                                var existingPrice = existingPrices.FirstOrDefault(e => e.Currency == currencyCode);
+                                if (existingPrice != null)
+                                {
+                                    if (existingPrice.Price != priceDto.Price) existingPrice.Price = priceDto.Price;
+                                }
+                                else
+                                {
+                                    var newPrice = new ProductVariantPrice
+                                    {
+                                        ProductVariantId = existingVar.Id,
+                                        Currency = currencyCode,
+                                        Price = priceDto.Price
+                                    };
+                                    _context.Entry(newPrice).State = EntityState.Added;
+                                    existingVar.Prices.Add(newPrice);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                var newVar = new ProductVariant
+                {
+                    Sku = vDto.Sku,
+                    StockQuantity = vDto.StockQuantity,
+                    Options = vDto.Options?.Select(o => new ProductVariantOption { ProductAttributeValueId = o.ProductAttributeValueId }).ToList() ?? new(),
+                    Prices = vDto.Prices?.Select(p => new ProductVariantPrice
+                    {
+                        Currency = Enum.Parse<Currency>(p.CurrencyCode, true),
+                        Price = p.Price
+                    }).ToList() ?? new()
+                };
+                _context.Entry(newVar).State = EntityState.Added;
+                foreach (var opt in newVar.Options) _context.Entry(opt).State = EntityState.Added;
+                foreach (var price in newVar.Prices) _context.Entry(price).State = EntityState.Added;
+                product.Variants.Add(newVar);
+            }
+        }
+
+        if (request.DeletedImageIds != null && request.DeletedImageIds.Any())
+        {
+            var imagesToDelete = product.Images.Where(i => request.DeletedImageIds.Contains(i.Id)).ToList();
+            foreach (var img in imagesToDelete)
+            {
+                _fileService.DeleteFile(img.ImageUrl);
+                product.Images.Remove(img);
+            }
+        }
+
+        if (request.SetMainImageId.HasValue)
+        {
+            foreach (var img in product.Images.Where(i => i.Id != Guid.Empty).ToList())
+            {
+                var shouldBeMain = img.Id == request.SetMainImageId.Value;
+                if (img.IsMain != shouldBeMain) img.IsMain = shouldBeMain;
+            }
+        }
+
+        if (request.Images != null && request.Images.Any())
+        {
+            var hasMainImage = product.Images.Any(i => i.IsMain);
+            // Resolve English name for alt text — same strategy as CreateAsync
+            var enNameForAlt = product.Translations.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                               ?? product.Translations.FirstOrDefault()?.Name
+                               ?? product.Slug;
+
+            for (int i = 0; i < request.Images.Count; i++)
+            {
+                var fileUrl = await _fileService.UploadImageAsync(request.Images[i], "products");
+                var newImage = new ProductImage
+                {
+                    ProductId = product.Id,
+                    ImageUrl = fileUrl,
+                    IsMain = !hasMainImage && i == 0,
+                    AltText = SeoGenerator.GenerateAltText(enNameForAlt)
+                };
+                _context.Entry(newImage).State = EntityState.Added;
+                product.Images.Add(newImage);
+            }
+        }
+
+        var strategy = _updateStrategies.FirstOrDefault(s => s.CanHandle(product.Category));
+        if (strategy != null)
+            await strategy.ApplyUpdateAsync(product, request, _context);
+
+        // --- Slug change: regenerate and record history within the same SaveChanges ---
+        // Slug is derived from the English name. Re-generate it if the English name changed.
+        var newEnglishName = request.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name
+                             ?? request.Name;  // fallback for non-translation requests
+        var candidateSlug = DuneFlame.Application.Common.SlugGenerator.GenerateSlug(newEnglishName);
+
+        if (!string.IsNullOrWhiteSpace(candidateSlug) && candidateSlug != oldSlug)
+        {
+            var newSlug = await GenerateUniqueSlugAsync(candidateSlug, product.Id);
+            product.Slug = newSlug;
+
+            // Persist the retired slug so old URLs can be 301-redirected
+            _context.ProductSlugHistories.Add(new ProductSlugHistory
+            {
+                ProductId = product.Id,
+                OldSlug = oldSlug
+            });
+
+            _logger.LogInformation(
+                "Product {ProductId} slug changed from '{OldSlug}' to '{NewSlug}'. History record created.",
+                product.Id, oldSlug, newSlug);
+        }
+
+        try
+        {
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Product Update SaveChangesAsync completed successfully.");
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex)
+        {
+            _logger.LogError(ex, "Concurrency exception during product update save!");
+            throw;
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        {
+            _logger.LogError(ex, "DbUpdateException during product update save!");
+            throw;
+        }
+
+        // Invalidate caches — include old slug so stale cache entries are purged
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{product.Id}");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");   // new slug
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{oldSlug}");         // old slug
+        await _cache.RemoveByTagAsync("product-tag:list");
+        await _cache.RemoveByTagAsync("product-tag:admin-list");
+
+        _logger.LogInformation("Product update completed for ID {ProductId}.", product.Id);
+
+        // --- Fire Merchant Center sync (non-blocking — failures are logged, never thrown) ---
+        var syncProduct = await _context.Products
+            .Include(p => p.Translations)
+            .Include(p => p.Images)
+            .Include(p => p.Variants)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == product.Id);
+        if (syncProduct != null)
+            await _merchantService.SyncProductToMerchantCenterAsync(syncProduct);
+
+        return true;
+    }
+
+    public async Task DeleteAsync(Guid id)
+    {
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == id)
+            ?? throw new NotFoundException($"Product with ID {id} not found.");
+
+        // Always soft-delete so the admin can restore the product if needed.
+        // Hard deletion is intentionally avoided — the frontend shows an "Archived" badge
+        // and a Restore button for every soft-deleted product.
+        product.IsDeleted = true;
+        _logger.LogInformation(
+            "Product {ProductId} soft-deleted. Product remains in database and can be restored by admin.",
+            id);
+
         await _context.SaveChangesAsync();
+
+        // Remove from Google Merchant Center immediately (both soft and hard delete)
+        await _merchantService.DeleteProductFromMerchantCenterAsync(product.Slug);
 
         // Invalidate all caches for this product
         await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{id}");
         await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:list");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:admin-list");
+        await _cache.RemoveByTagAsync("sitemap");
     }
 
     public async Task RestoreAsync(Guid id)
@@ -894,10 +1264,9 @@ public class ProductService(
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new NotFoundException($"Product with ID {id} not found.");
 
-        // Restore the product by setting IsActive back to true
-        product.IsActive = true;
+        product.IsDeleted = false;
         _logger.LogInformation(
-            "Product {ProductId} restored. IsActive set to true",
+            "Product {ProductId} restored.",
             id);
 
         await _context.SaveChangesAsync();
@@ -905,6 +1274,9 @@ public class ProductService(
         // Invalidate all caches for this product
         await _cache.RemoveByTagAsync($"{ProductTagPrefix}:{id}");
         await _cache.RemoveByTagAsync($"{ProductTagPrefix}:slug:{product.Slug}");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:list");
+        await _cache.RemoveByTagAsync($"{ProductTagPrefix}:admin-list");
+        await _cache.RemoveByTagAsync("sitemap");
     }
 
     private static ProductResponse MapToResponse(Product product, Currency currentCurrency, string languageCode)
@@ -957,8 +1329,17 @@ public class ProductService(
             );
         }
 
-        // 3. Map Variants and Prices
-        var variants = product.Variants?.DistinctBy(v => v.Id).Select(v =>
+        // 3. Map Variants and Prices (sorted by weight ascending: 250g → 500g → 1kg)
+        var variants = product.Variants?.DistinctBy(v => v.Id)
+            .OrderBy(v => v.Options?
+                .Where(o => o.ProductAttributeValue?.ProductAttribute?.Name
+                    .Contains("weight", StringComparison.OrdinalIgnoreCase) == true
+                    || o.ProductAttributeValue?.ProductAttribute?.Translations
+                        .Any(t => t.TranslatedName.Contains("weight", StringComparison.OrdinalIgnoreCase)) == true)
+                .Select(o => ParseWeightToGrams(o.ProductAttributeValue?.Value ?? ""))
+                .DefaultIfEmpty(int.MaxValue)
+                .Min())
+            .Select(v =>
         {
             // Base price fallback logic
             var activePrice = v.Prices?.FirstOrDefault(p => p.Currency == currentCurrency)?.Price ?? v.Price;
@@ -976,6 +1357,7 @@ public class ProductService(
                 Sku: v.Sku,
                 Price: activePrice,
                 StockQuantity: v.StockQuantity,
+                StockStatus: v.StockQuantity == 0 ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
                 Options: v.Options?.Select(o =>
                 {
                     var attrName = o.ProductAttributeValue?.ProductAttribute?.Translations
@@ -1007,7 +1389,6 @@ public class ProductService(
             Name: productName,
             Slug: product.Slug,
             Description: productDesc,
-            IsActive: product.IsActive,
             CategoryId: product.CategoryId,
             CategoryName: product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == languageCode)?.Name
                           ?? product.Category?.Translations?.FirstOrDefault(t => t.LanguageCode == "en")?.Name
@@ -1017,7 +1398,9 @@ public class ProductService(
             Translations: product.Translations?.Select(t => new ProductTranslationDto(
                  LanguageCode: t.LanguageCode,
                  Name: t.Name,
-                 Description: t.Description
+                 Description: t.Description,
+                 MetaTitle: t.MetaTitle,
+                 MetaDescription: t.MetaDescription
             )).ToList() ?? new List<ProductTranslationDto>(),
             CoffeeProfile: coffeeProfileDto,
             Specifications: product.EquipmentProfile?.Specifications,
@@ -1027,8 +1410,10 @@ public class ProductService(
             Images: product.Images?.OrderByDescending(i => i.IsMain).Select(i => new ProductImageDto(
                 Id: i.Id,
                 ImageUrl: i.ImageUrl,
-                IsMain: i.IsMain
-            )).ToList() ?? new List<ProductImageDto>()
+                IsMain: i.IsMain,
+                AltText: i.AltText
+            )).ToList() ?? new List<ProductImageDto>(),
+            IsDeleted: product.IsDeleted
         );
     }
 
@@ -1133,5 +1518,25 @@ public class ProductService(
         return Enum.TryParse<Currency>(currencyCode.Trim().ToUpper(), out var currency)
             ? currency
             : Currency.USD;
+    }
+
+    /// <summary>
+    /// Converts weight strings like "250g", "1kg", "2.5kg" to grams for ascending sort.
+    /// Returns int.MaxValue for unrecognized values so they appear last.
+    /// </summary>
+    private static int ParseWeightToGrams(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return int.MaxValue;
+
+        var v = value.Trim().ToLower();
+        if (v.EndsWith("kg") && double.TryParse(v[..^2], System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var kg))
+            return (int)(kg * 1000);
+
+        if (v.EndsWith("g") && double.TryParse(v[..^1], System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var g))
+            return (int)g;
+
+        return int.MaxValue;
     }
 }
